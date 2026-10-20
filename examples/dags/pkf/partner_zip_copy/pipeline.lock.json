@@ -81,8 +81,8 @@
     "params": {},
     "type": "s3"
   },
-  "framework_version": "0.5.0",
-  "lock_sha256": "ff8aef40264b139e946bfb00bcfe7215e4281287a461d2ae61d6c8fcf84e678b",
+  "framework_version": "0.8.2",
+  "lock_sha256": "1864b9fd5a1b94d0c82c3591b719d2d1e817b8c1c919bec317d16797392926d8",
   "lock_version": 2,
   "pipeline": {
     "api_version": "pkf/v1",
@@ -106,7 +106,7 @@
     "transformation": null,
     "trigger": "partner_drop_sqs"
   },
-  "runtime_version": "0.5.0",
+  "runtime_version": "0.8.2",
   "source": {
     "api_version": "pkf/v1",
     "connection": {

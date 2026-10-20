@@ -46,8 +46,8 @@ def test_examples_validate_and_build(repo):
     pkf(repo, "build", "--all")
     pkf(repo, "build", "--all", "--check")
     dags = sorted((repo / "dags").glob("pkf_*.py"))
-    assert [d.name for d in dags] == ["pkf_archive_mirror.py", "pkf_cro_monitoring_daily.py", "pkf_lab_deliveries.py",
-                                      "pkf_partner_zip_copy.py", "pkf_sas_folder_restructure.py"]
+    assert [d.name for d in dags] == ["pkf_archive_mirror.py", "pkf_cro_monitoring_daily.py", "pkf_entimice_api.py",
+                                      "pkf_lab_deliveries.py", "pkf_partner_zip_copy.py", "pkf_sas_folder_restructure.py"]
     for d in dags:
         compile(d.read_text(), str(d), "exec")
     assert (repo / "dags/.airflowignore").read_text().count("pkf/**") == 1

@@ -1,0 +1,47 @@
+{
+  "output": {
+    "ambiguities": [],
+    "assumptions": [
+      "The drop folder is the source's root, so the day folder is addressed as {ds} (YYYY-MM-DD).",
+      "Glob and regex matching are case-sensitive, so UPPER.CSV is excluded.",
+      "A missing day folder is treated like a folder with no .csv files and fails the run.",
+      "No min_age is applied because the requirement doesn't mention files still being written."
+    ],
+    "steps": [
+      {
+        "id": "list_day_folder",
+        "op": "list",
+        "params_json": "{\"root\": \"{ds}\"}",
+        "pseudocode": "",
+        "title": "List everything under the run-date folder"
+      },
+      {
+        "id": "keep_csv_only",
+        "op": "select",
+        "params_json": "{\"include\": [\"**/*.csv\"], \"regex\": \".*\\\\.csv$\"}",
+        "pseudocode": "",
+        "title": "Keep only files ending in lowercase .csv"
+      },
+      {
+        "id": "require_csv",
+        "op": "limits",
+        "params_json": "{\"min_files\": 1}",
+        "pseudocode": "",
+        "title": "Fail when the day has no .csv file"
+      }
+    ],
+    "summary": "Lists the day folder named after the run date in the local drop folder. It keeps only files ending in lowercase \".csv\" at any depth, and fails if there are none. All files go into one package with paths relative to the day folder."
+  },
+  "output_sha256": "76b4fd1a850b32c2cf47d19c1419cc78a5ee6fcc109403565caa6f3a7d448a48",
+  "provenance": {
+    "cost_usd": 0.0356348,
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "1",
+    "recorded_at": "2026-10-17T14:09:11Z",
+    "rekeyed_from": "461595916c67f4b81ded261c21b2c1d1c1a0ff96fb22130b3f5f575b66f932e9",
+    "skill_sha256": "7690c7e461337894d9a974196cfce1179f75f9cfb20f43d663bc098712022fc0",
+    "turns": 4
+  },
+  "skill": "planning-pipeline-components",
+  "task": "plan_component"
+}

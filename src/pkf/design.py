@@ -42,7 +42,7 @@ from pkf_runtime.ops import OPS, catalogue, parse_params_for
 from . import VERSION, yamlio
 from .envelope import Issue, PfError
 from .repo import FOLDERS, Repo
-from .specs.common import BUILTIN_VARS
+from .specs.common import BUILTIN_VARS, without_new_defaults
 
 ALLOWED_IMPORTS = {"re", "fnmatch", "json", "datetime", "hashlib", "zipfile", "gzip", "io", "posixpath", "math",
                    "itertools", "collections", "csv", "urllib.parse"}
@@ -220,7 +220,7 @@ def settings_view(kind: str, spec) -> dict:
     environment."""
     d: dict = {"type": getattr(spec, "type", kind), "parameters": {k: "{" + k + "}" for k in spec.params}}
     if kind == "destination":
-        d["delivery_policies"] = {k: v for k, v in spec.delivery.model_dump(mode="json").items() if k != "prefix"}
+        d["delivery_policies"] = without_new_defaults({"delivery": {k: v for k, v in spec.delivery.model_dump(mode="json").items() if k != "prefix"}})["delivery"]
     return d
 
 
@@ -1019,7 +1019,8 @@ def run_tests_isolated(kind: str, spec, module_file: Path, steps: list[dict], st
     event: the sha256 of the bytes that were tested. Results are written as they come, so a time-out keeps them."""
     job = {"kind": kind, "steps": steps, "params": spec.params, "examples": examples_of(spec), "step_tests": step_tests,
            "ops": {s["id"]: s["op"] for s in steps},
-           "delivery": spec.delivery.model_dump(mode="json") if kind == "destination" else None}
+           # the same ctx["delivery"] as the runtime, which reads it from the pipeline lock (build.lock_for)
+           "delivery": without_new_defaults({"delivery": spec.delivery.model_dump(mode="json")})["delivery"] if kind == "destination" else None}
     if timeout is None:
         timeout = test_timeout(steps, step_tests, len(job["examples"]))
     events, proc = _run_runner(module_file, job, timeout)

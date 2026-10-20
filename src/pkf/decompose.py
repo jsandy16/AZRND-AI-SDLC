@@ -22,22 +22,33 @@ from pkf_runtime.ops import OPS
 from . import design, yamlio
 from .envelope import Issue, PfError
 from .repo import FOLDERS, MODELS, Repo
-from .specs.common import REQUIRED
+from .specs.common import REQUIRED, without_new_defaults
 
 KIND_ORDER = ("trigger", "source", "transformation", "destination")
 
+SETTINGS_ADDITIONS = {  # inserted into SETTINGS_FORMAT after the fixtures were recorded (listed for re-keying, llm.base)
+    "trigger": ("\n              (a control list read from the Self-Service Portal, one record per item, with results written back: give the "
+                "trigger a requirement; its planner uses the selfservice, selfservice_due and data_vars steps; params "
+                "{\"self_service_base_url\", \"form_id\"}, credentials with the field api_key)"),
+    "source": ("\n              {\"type\": \"entimice\", \"connection\": {\"base_url\": \"https://…\", \"account_by\": \"{…}\" | null, "
+               "\"accounts\": {\"<value>\": \"<secret ref>\"}}, \"credentials\": {\"provider\": \"vault\", \"ref\": \"…\"}, \"params\": {}}"),
+    "destination": ("\n               a bucket per package: \"connection\": {\"bucket_by\": \"{…}\", \"bucket_map\": {\"<value>\": \"<bucket>\"}, "
+                    "\"region\": \"…\"} with \"delivery\": {\"mode\": \"stream\", \"if_exists\": \"overwrite\" | \"fail\", "
+                    "\"content_types\": {\".pdf\": \"application/pdf\"}} (each file streamed from the source; entimice sources)"),
+}
+
 SETTINGS_FORMAT = """Settings (config_json) by kind — use only these keys; put "<REQUIRED>" where the requirement does not say:
-trigger:      {"schedule": "*/5 * * * *" | "@daily" | null, "connection": {"region": "eu-west-1"}, "params": {"queue_url": "https://sqs…"}}
+trigger:      {"schedule": "*/5 * * * *" | "@daily" | null, "connection": {"region": "eu-west-1"}, "params": {"queue_url": "https://sqs…"}}""" + SETTINGS_ADDITIONS["trigger"] + """
 source:       {"type": "s3", "connection": {"bucket": "…", "region": "…"}, "credentials": {"provider": "none"}, "params": {}}
               {"type": "https", "connection": {"base_url": "https://…", "listing": "html_index"|"webdav"|"json_index", "auth": "none"|"basic"|"bearer"},
                "credentials": {"provider": "aws_secrets_manager"|"vault"|"local_file"|"env"|"none", "ref": "…"}, "params": {}}
               {"type": "sftp", "connection": {"host": "…", "port": 22, "host_key": "ssh-ed25519 …"}, "credentials": {…}, "params": {}}
               {"type": "ftp", "connection": {"host": "…", "tls": "explicit"}, "credentials": {…}, "params": {}}
-              {"type": "local", "connection": {"base_path": "…"}, "params": {}}
+              {"type": "local", "connection": {"base_path": "…"}, "params": {}}""" + SETTINGS_ADDITIONS["source"] + """
 transformation: {"params": {}}
 destination:  {"type": "s3", "connection": {"bucket": "…", "region": "…"}, "credentials": {"provider": "none"},
                "delivery": {"if_exists": "skip_identical", "server_side_encryption": "aws:kms" | "AES256" | null, "write_success_marker": false},
-               "params": {}}     ({"type": "local", "connection": {"base_path": "…"}, …} for development)"""
+               "params": {}}     ({"type": "local", "connection": {"base_path": "…"}, …} for development)""" + SETTINGS_ADDITIONS["destination"]
 
 EXAMPLE_FORMAT = """Examples (examples_json) by kind — structure only, never data:
 trigger:        {"name", "messages": [message bodies as JSON objects or strings], "conf": null, "params": {},
@@ -76,7 +87,7 @@ def _existing(repo: Repo, pipeline: str) -> list[dict]:
         for name, spec in repo.specs[kind].items():
             if (kind, name) in own:
                 continue
-            d = spec.model_dump(mode="json", exclude={"requirement", "examples", "steps", "credentials", "api_version"})
+            d = without_new_defaults(spec.model_dump(mode="json", exclude={"requirement", "examples", "steps", "credentials", "api_version"}))
             out.append({"kind": kind, "name": name, "settings": d, "has_requirement": bool(getattr(spec, "requirement", None))})
     return out
 

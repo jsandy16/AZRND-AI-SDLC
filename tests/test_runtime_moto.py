@@ -220,7 +220,9 @@ def test_harness_and_runtime_pass_the_same_ctx(world, tmp_path, monkeypatch):
     for k in keys(s3):  # the harness sets up its own bucket and objects (moto's state is shared with this test's)
         s3.delete_object(Bucket=BUCKET, Key=k)
     s3.delete_bucket(Bucket=BUCKET)
-    spec_delivery = load(repo).get("destination", "sas_layout").delivery.model_dump(mode="json")
+    from pkf.specs.common import without_new_defaults
+
+    spec_delivery = without_new_defaults({"delivery": load(repo).get("destination", "sas_layout").delivery.model_dump(mode="json")})["delivery"]
     fns: dict = {}
     exec(MOVE_REASON, fns)  # noqa: S102 - the test's own code
     r = simulate.run_step_case("destination", fns["move_files"], MOVE_CASE, "custom_delivery", delivery=spec_delivery)

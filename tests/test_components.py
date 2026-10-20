@@ -92,11 +92,14 @@ def test_catalogues_have_custom_and_receive_first():
 
 
 # ---------------------------------------------------------------------------------------------- decomposer (replay)
+RECORDED_EXAMPLES = shutil.ignore_patterns("dags", "__pycache__", ".git", ".llm", "*entimice*", "requirements")
+"""The examples as they were when the replayed split was recorded: the decomposer sees every other pipeline's
+components, so example pipelines added later (entimice_api) would change its prompt."""
 def test_pipeline_split_replayed(tmp_path):
     from test_flow import pkf
 
     repo = tmp_path / "specs"
-    shutil.copytree(ROOT / "examples", repo, ignore=shutil.ignore_patterns("dags", "__pycache__", ".git", ".llm"))
+    shutil.copytree(ROOT / "examples", repo, ignore=RECORDED_EXAMPLES)
     doc = pkf(repo, "plan", "pipeline", "partner_zip_copy")
     split = doc["data"]["split"]
     assert set(split["components"]) >= {"trigger", "source", "destination"} and not split["ambiguities"]
@@ -122,7 +125,7 @@ def test_split_with_errors_or_foreign_files_is_not_applied(tmp_path):
     from pkf.repo import load
 
     repo = tmp_path / "specs"
-    shutil.copytree(ROOT / "examples", repo, ignore=shutil.ignore_patterns("dags", "__pycache__", ".git", ".llm"))
+    shutil.copytree(ROOT / "examples", repo, ignore=RECORDED_EXAMPLES)
     pkf(repo, "plan", "pipeline", "partner_zip_copy")
     r = load(repo)
     lock = decompose.load_lock(r, "partner_zip_copy")

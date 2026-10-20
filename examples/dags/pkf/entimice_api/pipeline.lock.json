@@ -81,15 +81,11 @@
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         ".xml": "application/xml"
       },
-      "default_content_type": "application/octet-stream",
       "if_exists": "overwrite",
       "kms_key_id": null,
-      "max_concurrency": 8,
       "mode": "stream",
-      "part_size_mb": 16,
       "prefix": "{source}/{ds}/{package}/",
       "server_side_encryption": null,
-      "verify_size": true,
       "write_success_marker": false
     },
     "description": "The study's bucket by destination; SAS \u2192 incoming/<studyId>/, clinicalstudies \u2192 <studyId>/ongoing/",
@@ -99,7 +95,7 @@
     "type": "s3"
   },
   "framework_version": "0.8.2",
-  "lock_sha256": "96dea6aa14d537d84948a05cf0ba067f7567fdf8d6f65859973b96e142e0a475",
+  "lock_sha256": "6a452a2dfc5015efbcb09882f630ce58ddb24f6db4bb37610b20d25a6a7de279",
   "lock_version": 2,
   "pipeline": {
     "api_version": "pkf/v1",

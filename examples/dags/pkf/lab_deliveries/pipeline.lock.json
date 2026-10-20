@@ -96,8 +96,8 @@
     "params": {},
     "type": "s3"
   },
-  "framework_version": "0.5.0",
-  "lock_sha256": "12b22cee7dcdeb2c5f0a4ededa5b8e7df5db5048b4dde615e6b7076a06e63f28",
+  "framework_version": "0.8.2",
+  "lock_sha256": "edd3e6dd0e5209d02350671f542b8bc6ee881cda396e16f86bad0d3de232d08f",
   "lock_version": 2,
   "pipeline": {
     "api_version": "pkf/v1",
@@ -120,7 +120,7 @@
     "transformation": "lab_control_check",
     "trigger": null
   },
-  "runtime_version": "0.5.0",
+  "runtime_version": "0.8.2",
   "source": {
     "api_version": "pkf/v1",
     "connection": {

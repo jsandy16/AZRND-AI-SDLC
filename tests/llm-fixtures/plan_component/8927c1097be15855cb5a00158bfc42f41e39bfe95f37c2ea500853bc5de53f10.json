@@ -1,0 +1,32 @@
+{
+  "output": {
+    "ambiguities": [],
+    "assumptions": [
+      "The lake folder is the root of the local destination, so keys are relative to it (as in the examples: 2024-03-01/SITE_0001/a.csv).",
+      "Overwriting, the _SUCCESS marker (written last, only if no file failed) and copy-not-move are covered by the fixed delivery settings (if_exists=overwrite, write_success_marker=true) and the framework's copy-based upload, so no custom_delivery step is needed (the destination is local, not S3).",
+      "The _SUCCESS marker lands in <lake>/<run date>/ because the marker is written next to the delivered files under the prefix."
+    ],
+    "steps": [
+      {
+        "id": "place_under_run_date",
+        "op": "prefix",
+        "params_json": "{\"prefix\": \"{ds}/\"}",
+        "pseudocode": "",
+        "title": "Deliver all files to <run date>/ keeping package paths"
+      }
+    ],
+    "summary": "Every package file is delivered under a folder named for the run date ({ds}, YYYY-MM-DD) in the lake folder, keeping its package path. The existing settings handle the rest: files are copied unchanged, existing files are overwritten, and the empty _SUCCESS marker is written only after all files are delivered. The source folder is not touched."
+  },
+  "output_sha256": "80af01bb55dea51a340013575ace3e0821d3c61be028a20ea6b1ae28a3b6484f",
+  "provenance": {
+    "cost_usd": 0.030256,
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "1",
+    "recorded_at": "2026-10-17T14:09:26Z",
+    "rekeyed_from": "ac8a533916b46396ee2832c81f940b30d991a241b1e00ac528d02c5a2f71cff7",
+    "skill_sha256": "7690c7e461337894d9a974196cfce1179f75f9cfb20f43d663bc098712022fc0",
+    "turns": 4
+  },
+  "skill": "planning-pipeline-components",
+  "task": "plan_component"
+}

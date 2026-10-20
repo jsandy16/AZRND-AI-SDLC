@@ -1,0 +1,29 @@
+{
+  "output": {
+    "assumptions": [
+      "Cron for @daily is 0 0 * * * (midnight, Airflow time zone as configured).",
+      "The run date is the Airflow logical date formatted YYYY-MM-DD.",
+      "Only lowercase '.csv' counts; files such as UPPER.CSV are ignored.",
+      "A missing day folder is treated like a day folder with no .csv file, so the run fails.",
+      "The _SUCCESS marker is not written when the run fails."
+    ],
+    "description": "Daily copy of the run date's .csv lab files from a local drop folder to a local lake folder under a run-date folder, with a _SUCCESS marker.",
+    "examples_json": "[{\"name\":\"normal_nested_csv\",\"messages\":[],\"conf\":null,\"listing\":[\"2024-03-01/SITE_0001/a.csv:10\",\"2024-03-01/SITE_0002/b.csv:20\"],\"params\":{},\"expected_keys\":[\"2024-03-01/SITE_0001/a.csv\",\"2024-03-01/SITE_0002/b.csv\"],\"expect_error\":false},{\"name\":\"ignores_non_csv_and_other_days\",\"messages\":[],\"conf\":null,\"listing\":[\"2024-03-01/SITE_0001/a.csv:10\",\"2024-03-01/SITE_0001/notes.txt:5\",\"2024-03-01/SITE_0001/UPPER.CSV:7\",\"2024-02-29/SITE_0001/old.csv:9\"],\"params\":{},\"expect_error\":false,\"expected_keys\":[\"2024-03-01/SITE_0001/a.csv\"]},{\"name\":\"csv_at_top_level_of_day\",\"messages\":[],\"conf\":null,\"listing\":[\"2024-03-01/top.csv:3\"],\"params\":{},\"expected_keys\":[\"2024-03-01/top.csv\"],\"expect_error\":false},{\"name\":\"no_csv_fails\",\"messages\":[],\"conf\":null,\"listing\":[\"2024-03-01/SITE_0001/readme.txt:5\",\"2024-02-29/SITE_0001/old.csv:9\"],\"params\":{},\"expected_keys\":[],\"expect_error\":true}]",
+    "open_questions": [],
+    "pipeline_name": "lab_drop_daily",
+    "pseudocode": "1. Trigger: the @daily schedule starts a run with the run date (YYYY-MM-DD). Airflow retries a failed run twice, 5 minutes apart.\n2. Source: list all files recursively under <drop folder>/<run date>/. Paths are relative to that folder.\n3. Select files whose name ends in \".csv\" (lowercase). Ignore the rest.\n4. Fail the run if no .csv file is left.\n5. Build one package for the day containing the selected files.\n6. Transformation: none.\n7. Destination: map each file to <lake folder>/<run date>/<package path>.\n8. Delivery: copy each file, overwriting existing ones. Leave the drop folder unchanged.\n9. After all files are copied, write an empty _SUCCESS in <lake folder>/<run date>/.",
+    "requirement": "TRIGGER\n- Runs once a day on the schedule @daily (cron 0 0 * * *). There are no events.\n- If a run fails, Airflow retries it twice, 5 minutes apart.\n\nSOURCE\n- Local folder: the drop folder (path: set per environment).\n- Only the subfolder named after the run date (YYYY-MM-DD) is read; other day folders are ignored.\n- Everything under the day's folder is one package for the day (one package per run).\n- Take every file whose name ends in \".csv\" (lowercase extension, case-sensitive), at any depth under the day's folder. All other files are ignored silently.\n- Paths in the package are relative to the day's folder, e.g. SITE_0001/a.csv.\n- The run fails when the day's folder has no .csv file at all.\n\nTRANSFORMATION\n- None: files are copied unchanged, with no change to names, structure or contents.\n\nDESTINATION\n- Local folder: the lake folder (path: set per environment).\n- The package goes to <run date>/ under the lake folder, keeping the package paths: <lake>/<run date>/SITE_0001/a.csv.\n- After all files are written, an empty _SUCCESS marker is written in <lake>/<run date>/.\n\nDELIVERY BEHAVIOUR\n- Copy, never move: the drop folder is left unchanged.\n- Files that already exist in the lake are overwritten.\n- The _SUCCESS marker is written only after all files are delivered.\n- The run fails if the day's folder has no .csv file; Airflow then retries twice, 5 minutes apart."
+  },
+  "output_sha256": "36ac50d885a30ec0d988b09c12b8340595fba68ecbe731a6ae51e511aab6eaf4",
+  "provenance": {
+    "cost_usd": 0.0292471,
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "1",
+    "recorded_at": "2026-10-17T14:08:27Z",
+    "rekeyed_from": "277fb37ee87ea05f28dbf476545731a69fae9607ba60034312f0caee3ab7ad0b",
+    "skill_sha256": "82e673c92eefcdae59942ddefb6885846afe58ed3f2e6557a714a317c850c9d9",
+    "turns": 4
+  },
+  "skill": "finalizing-pipeline-requirements",
+  "task": "analyze_requirements"
+}

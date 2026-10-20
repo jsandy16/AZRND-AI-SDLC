@@ -98,8 +98,8 @@
     "params": {},
     "type": "s3"
   },
-  "framework_version": "0.5.0",
-  "lock_sha256": "b0cb855d5128b1985bc1dde68abc4ae334f2e45c88e3d8d69bc5243f9b4ed160",
+  "framework_version": "0.8.2",
+  "lock_sha256": "558dbaa176c4394003d50730a9ed425f68c624193ab91d6243fae725d8d43b9d",
   "lock_version": 2,
   "pipeline": {
     "api_version": "pkf/v1",
@@ -125,7 +125,7 @@
     "transformation": "csv_zip_bundle",
     "trigger": null
   },
-  "runtime_version": "0.5.0",
+  "runtime_version": "0.8.2",
   "source": {
     "api_version": "pkf/v1",
     "connection": {

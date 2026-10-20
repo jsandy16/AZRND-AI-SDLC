@@ -3,8 +3,9 @@
     python tests/rekey_fixtures.py [pytest args…]      (default: the replay tests)
 
 Runs the replay tests with PKF_LLM_REKEY=1. On a replay miss, `pkf.llm.base.run_structured` computes the key the same call
-had before the 0.5.0 prompt changes (every sentence of PROMPT_CHANGES_0_5[task] removed, LEGACY_SKILL_SHA for a changed
-SKILL.md). When that fixture exists it is copied under the new key, output unchanged, with `provenance.rekeyed_from`.
+had before the listed prompt changes (every entry of base.listed_changes(task) removed: the 0.5.0 sentences of
+PROMPT_CHANGES_0_5 and the catalogue operations and parameters added since, CATALOGUE_ADDITIONS / PARAM_ADDITIONS;
+LEGACY_SKILL_SHA for a changed SKILL.md). When that fixture exists it is copied under the new key, output unchanged, with `provenance.rekeyed_from`.
 The tool prints the old → new pairs; commit the new files. Old files stay until the orphan sweep
 (PKF_LLM_FIXTURE_TRACE). CI never sets PKF_LLM_REKEY, so a missing fixture there is still an error.
 """

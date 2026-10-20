@@ -42,6 +42,56 @@ PROMPT_CHANGES_0_5: dict[str, list[str]] = {
 }
 LEGACY_SKILL_SHA: dict[str, str] = {}  # skill -> SKILL.md sha256 of 0.4.0, when a SKILL.md changed (none in 0.5.0)
 
+CATALOGUE_ADDITIONS: dict[str, list[str]] = {  # catalogue operations added after the fixtures were recorded (Entimice)
+    "trigger": ["selfservice", "data_vars", "selfservice_due"],
+    "destination": ["check", "prefix_by"],
+}
+CATALOGUE_TASKS = ("analyze_requirements", "decompose_pipeline", "plan_component")
+"""Roles whose prompts list the catalogues: an added operation inserts '; <op> — <summary>' into its kind's line."""
+
+
+def listed_changes(task: str) -> list[str]:
+    """Every listed insertion into this role's prompts since the fixtures were recorded (see _rekey)."""
+    out = list(PROMPT_CHANGES_0_5.get(task, []))
+    if task in CATALOGUE_TASKS:
+        from pkf_runtime import events, layout
+
+        ops = {"trigger": events.TRIGGER_OPS, "destination": layout.DESTINATION_OPS}
+        out += [f"; {n} — {ops[kind][n].summary}" for kind, names in CATALOGUE_ADDITIONS.items() for n in names]
+    if task == "plan_component":
+        out += _planner_catalogue_insertions()
+    if task == "decompose_pipeline":
+        from pkf.decompose import SETTINGS_ADDITIONS
+
+        out += list(SETTINGS_ADDITIONS.values())
+    return out
+
+
+PARAM_ADDITIONS: dict[str, list[str]] = {"list": ["keep_root", "blank_root"]}  # source `list` (Entimice)
+
+
+def _planner_catalogue_insertions() -> list[str]:
+    """What the added operations and parameters insert into the planner's 'Operation catalogue (JSON)', computed with
+    the same rendering as the prompt (design._plan_prompt): the catalogue JSON now, minus the additions, diffed."""
+    import difflib
+
+    from pkf_runtime import discovery, events, layout
+    from pkf_runtime.ops import catalogue
+
+    added = {n for names in CATALOGUE_ADDITIONS.values() for n in names}
+    out: list[str] = []
+    for ops in (events.TRIGGER_OPS, discovery.SOURCE_OPS, layout.DESTINATION_OPS):
+        now = catalogue(ops)
+        before = [{**o, "params": {k: v for k, v in o["params"].items() if k not in PARAM_ADDITIONS.get(o["op"], [])}}
+                  for o in now if o["op"] not in added]
+        a, b = json.dumps(before, indent=1, default=str), json.dumps(now, indent=1, default=str)
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            if tag == "insert":
+                out.append(b[j1:j2])
+            elif tag != "equal":  # not a pure insertion: re-keying cannot rebuild the old prompt
+                return out
+    return out
+
 
 class LLMMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -222,7 +272,7 @@ def _append_line(env: str, line: str) -> None:
 def _rekey(task: str, skill: str, prompt: str, schema: dict, tools: list[str] | None, new: Path) -> Path | None:
     """PKF_LLM_REKEY: the fixture recorded for the same call before the 0.5.0 prompt changes, copied under the new key."""
     old_prompt = prompt
-    for sentence in PROMPT_CHANGES_0_5.get(task, []):
+    for sentence in listed_changes(task):
         old_prompt = old_prompt.replace(redact_secrets(sentence)[0], "", 1)
     old_key = _key(task, skill, old_prompt, schema, tools, skill_sha256=LEGACY_SKILL_SHA.get(skill))
     old = fixtures_dir() / task / f"{old_key}.json"

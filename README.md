@@ -89,6 +89,9 @@ Airflow workers need `pip install 'package-factory[runtime]'` (or the built whee
   - SFTP → custom control-file check → S3
   - S3 → S3 mirror
   - the event-driven S3 → SQS → S3 zip copy, created from one English requirement
+  - `entimice_api`: twice a day, copy the files of the Self-Service Portal studies due for a refresh from Entimice
+    (REST, session login) into the data-lake buckets, streamed, and write each study's result back to the portal —
+    [docs/ENTIMICE_PIPELINE.md](docs/ENTIMICE_PIPELINE.md)
   - `sas_folder_restructure`: every 45 minutes, route each file under `incoming/` by seven path rules and move it
     within the bucket (server-side copy, check, delete, tag), created from one English requirement
 - `dryrun/` holds the end-to-end dry run on real Airflow 3 against local stand-ins for HTTPS, WebDAV, SFTP, FTPS,

@@ -153,3 +153,20 @@ def check_schedule(v: str | None) -> str | None:
     for f, (name, lo, hi) in zip(fields, CRON_FIELDS):
         _cron_field(f, name, lo, hi)
     return v
+
+
+NEW_FIELD_DEFAULTS = {  # settings added after the AI fixtures were recorded, with their defaults (Entimice, stream delivery)
+    "delivery": {"mode": "staged", "part_size_mb": 16, "max_concurrency": 8, "content_types": {},
+                 "default_content_type": "application/octet-stream", "verify_size": True},
+    "connection": {"bucket_by": None, "bucket_map": {}},
+}
+
+
+def without_new_defaults(d: dict) -> dict:
+    """A component's settings with the newer settings left out while they are at their default: what the AI roles see
+    and what pipeline locks record, so prompts and locks of components that do not use them stay exactly as they were."""
+    out = dict(d)
+    for section, defaults in NEW_FIELD_DEFAULTS.items():
+        if isinstance(out.get(section), dict):
+            out[section] = {k: v for k, v in out[section].items() if not (k in defaults and v == defaults[k])}
+    return out
