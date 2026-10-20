@@ -1,0 +1,17 @@
+api_version: pkf/v1
+kind: pipeline
+name: cro_monitoring_daily
+description: Daily CRO monitoring export → study zip with manifest in the raw zone
+owner: clinical-data-eng
+connection: cro_to_lake
+transformation: csv_zip_bundle
+package_name: "{source}_{ds_nodash}"
+params:
+  input_path: /exports/monitoring
+schedule: "0 2 * * *"
+start_date: 2026-10-01
+task_split: per_step
+retries: 2
+retry_delay_minutes: 5
+max_active_runs: 1
+tags: [cro, monitoring]

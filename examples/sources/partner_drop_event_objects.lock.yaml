@@ -1,0 +1,53 @@
+# sources/partner_drop_event_objects.lock.yaml — plan, step tests, simulation, code tests and approvals.
+# Written by `pkf plan/code/test/approve-…`; approvals are a person's decision. Do not edit by hand.
+lock_version: 2
+kind: source
+name: partner_drop_event_objects
+requirement_sha256: 165a3a55b35b0d7389b5b2910acf653ad2984b76b95cfb062835920a052db987
+plan:
+  summary: For each event, the package takes only the object the event names, with no bucket listing. The key must start
+    with incoming/. That prefix is removed, so incoming/study1/data.zip becomes study1/data.zip. A key outside incoming/
+    fails the package.
+  steps:
+    - id: take_event_object
+      op: from_event
+      title: Take the object named by the event, under incoming/
+      params:
+        root: incoming/
+  assumptions:
+    - The bucket (partner-drop-bucket) and region (eu-west-1) are component settings, so they are not step parameters.
+    - The incoming/ root is fixed in the requirement and the same in every environment, so it is written as a literal.
+    - from_event fails the package when a key is not under the root, as the key_outside_root_fails example expects.
+    - The requirement does not say what happens if the named object no longer exists, so the default (skip) is kept.
+  ambiguities: []
+  step_tests: {}
+planned_by:
+  task: plan_component
+  skill: planning-pipeline-components
+  skill_sha256: 1bc7dd2f04fb60afbbed488175c47d16e54e42c3a79da8f1ac975cedb3767078
+  prompt_sha256: 41a0f4ddcd84b3f74b99444607d1a03838100c130f6d2e9f457a3be3f53a437a
+  schema_sha256: 6c2d314e688ab2eb8b56d8679ba6c23f31b68deb03072c6dc1e898a70263ef01
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+tests_written_by: {}
+simulation:
+  - example: single_zip
+    status: pass
+    detail: matches the expected output
+    output:
+      -   - study1/data.zip
+  - example: zip_directly_under_incoming
+    status: pass
+    detail: matches the expected output
+    output:
+      -   - data.zip
+  - example: key_outside_root_fails
+    status: pass
+    detail: "PackageError: event object 'other/data.zip' is not under 'incoming/'"
+    output:
+plan_digest: 720ba0faaf180d7de5f6cc83a321966c1d743ea6ee569b96fe4cce64e4a0a8ec
+plan_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-16T12:43:59+00:00'
+  digest: 720ba0faaf180d7de5f6cc83a321966c1d743ea6ee569b96fe4cce64e4a0a8ec

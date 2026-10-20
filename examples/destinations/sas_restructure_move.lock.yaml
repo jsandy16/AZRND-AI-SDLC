@@ -1,0 +1,477 @@
+# destinations/sas_restructure_move.lock.yaml — plan, step tests, simulation, code tests and approvals.
+# Written by `pkf plan/code/test/approve-…`; approvals are a person's decision. Do not edit by hand.
+lock_version: 2
+kind: destination
+name: sas_restructure_move
+requirement_sha256: f86f9489ab7e413c0766d2a18ba57fd9c64f982cbb25100ecc143646b3e7f12a
+plan:
+  summary: Computes each file's target key from its folder path using the seven rules. It requires exactly one rule to 
+    match. Otherwise the file is sent to error/{path}. A final delivery step then moves each file in S3. It copies 
+    server-side, checks the target, deletes the source, and replaces the target's tags with one ADDITIONAL_TAG. Tag 
+    failures are warnings only.
+  steps:
+    - id: compute_target_keys
+      op: custom
+      title: Work out target key per file by the 7 rules (exactly one must match, else error/)
+      params:
+        function: compute_target_keys
+      pseudocode: "1. For each path in layout['files'] without a key already set: parts = path.split('/'); study = parts[0];
+        filename = parts[-1]; folders = parts[:-1]; last = folders[-1] if len(folders)>0 else ''. If the file is at the root
+        (no folders), study is not a folder: treat as unworkable -> error key.\n2. fp = '/' + '/'.join(folders) + '/' (folder
+        path only, never the file name).\n3. Data format (non-anon): 'adam' if '/adam/' in fp; elif '/sdtm/' in fp then 'sdtm';
+        elif 'raw/' in fp then 'raw'; else None. Anon format (underscore): from last folder-or-path, first found among '_adam_'
+        -> adam, '_sdtm_' -> sdtm, '_raw_' or '_restricted_raw_' -> raw (checked on fp; order adam, sdtm, raw); else None.\n\
+        4. Evaluate every rule independently, each yielding a key, 'error' (rule matched but cannot be worked out) or no match:\n\
+        \ R1 CDAP: '/data_reuse/' in fp and '/cdap_' in fp and format. If '/cdap_csr' in fp -> study/extended_primary_use/primary/format/file.
+        Elif '_ia' in last: pieces=last.split('_'); need >=3 else error; x=pieces[2]; x must start with 'ia' (else error);
+        key study/extended_primary_use/interim/format/'ia_'+x[2:]/file. Else pieces need >=2 else error; key study/extended_primary_use/other/format/pieces[1]/file.\n\
+        \ R2 IDAP: '/data_reuse/' in fp and '/idap' in fp and format -> study/internal_reuse/format/last/file.\n R3 MED: '/data_reuse/'
+        in fp and '/med' in fp and format -> study/external_reuse/format/last/file.\n R4 ANON: '_anon_' in fp and anon format.
+        If '_anon_csr' in fp -> study/anonymised/primary/format/file. Else v=last.split('_')[-1]; if v.startswith('ia') (case-sensitive)
+        -> study/anonymised/interim/format/'ia_'+v[2:]/file; else study/anonymised/other/format/v/file.\n R5 CDAR: '/cdar/'
+        in fp and format. Find folder named 'ar' (case-insensitive) among folders[1:]; none -> error. level = folder right
+        after it lowercased (none -> error); level in adam/sdtm/raw -> error. 'csr' -> study/primary/complete/format/file.
+        startswith 'ia' -> r=level[2:].lstrip('_'); study/primary/interim/format/'ia_'+r/file. Else study/primary/other/format/level/file.\n\
+        \ R6 OTHERS: '/data_reuse/' in fp and format and none of '/med','/cdap','/idap','/anon','_anon_' in fp -> study/other/format/last/file.\n\
+        \ R7 DEFAULT: none of '/data_reuse/','_anon_','/cdar/' in fp -> path unchanged.\n5. Count matching rules (an 'error'
+        result counts as a match). If exactly one matched and its result is a key, set layout['keys'][path]=key. If zero matched,
+        more than one matched, or the single match is an error -> layout['keys'][path]='error/'+path. Never set None (never
+        drop a file).\n6. Record the rule name (or error reason) per path in layout['vars'] (e.g. 'rule:'+path) so delivery
+        can report it. Return layout."
+    - id: custom_delivery
+      op: custom_delivery
+      title: Move files server-side, verify, delete source, replace tags, report per file
+      params:
+        function: custom_delivery
+      pseudocode: "1. For each transfer t: is_error = t.target_key starts with 'error/'. Original path = t.path (without incoming/).\n\
+        2. Copy server-side: aws.s3_destination.copy({'Bucket':t.source_bucket,'Key':t.source_key}, t.target_bucket, t.target_key,
+        ExtraArgs={'CopySourceIfMatch':t.etag} only if etag is not None, plus ServerSideEncryption/SSEKMSKeyId from ctx['delivery']
+        when set), SourceClient=aws.s3_source. Existing target is overwritten (if_exists overwrite). On exception -> result
+        status 'failed', detail = error; the source is left untouched; continue with next transfer.\n3. Confirm the target:
+        head_object(Bucket=target_bucket, Key=target_key) and ContentLength == t.size. If it fails or differs -> status 'failed',
+        source left in place.\n4. Only after confirmation delete the source: delete_object(source_bucket, source_key). If
+        delete fails -> status 'failed' with the reason (source stays so the next run retries).\n5. If not is_error: put_object_tagging
+        on the target replacing all tags with exactly [{'Key':'ADDITIONAL_TAG','Value':t.path}]. A tagging failure is only
+        logged with aws.log.warning and the file still counts as moved (detail notes the warning). Files moved to error/ get
+        no tag change.\n6. Result per transfer: {'path':t.path,'key':t.target_key,'status':'moved' (or 'moved_to_error' for
+        error/ targets),'detail': rule or error reason (from layout vars / 'error/ prefix'), plus tag warning if any}. Also
+        log one line per file via aws.log.info: source, target, rule or error reason.\n7. Return exactly one result per transfer.
+        Only copy/check/delete failures yield 'failed'; moves to error/ do not fail the run."
+  assumptions:
+    - Rules are tested on the folder path with a leading and trailing '/' added, so '/adam/' and 'raw/' also match when 
+      the folder is directly after the study or last.
+    - The study (first path segment) is used as written, with no case change.
+    - Format check order is adam, sdtm, raw; for anonymised folders _adam_, _sdtm_, _raw_ / _restricted_raw_ in that 
+      order.
+    - A rule whose condition matches but whose key cannot be worked out (e.g. fewer than 3 '_' parts) counts as a match 
+      that yields an error. Other matching rules then make it ambiguous and the file goes to error/.
+    - The 'ia' piece in CDAP interim must start with 'ia'; otherwise error.
+    - Files with no folder (at the root of incoming/) have no study folder, so they go to error/.
+    - The 'ar' folder search for CDAR starts after the study folder, and the reporting level is the folder immediately 
+      after the first 'ar' folder.
+    - Package paths already exclude incoming/, so the source key is incoming/ plus the path, and the target is in the 
+      same bucket.
+    - Files that go to error/ are reported with status moved_to_error and counted as delivered.
+  ambiguities: []
+  step_tests:
+    compute_target_keys:
+      - name: cdap_other
+        purpose: 'R1 CDAP non-csr, non-ia: second underscore part of last folder'
+        input:
+          files:
+            - d1/data_reuse/d000/d1/ar/shared/raw/dev/data/cdap_20210617/b.sas7bdat
+          vars: {}
+          keys: {}
+        params: {}
+        expected:
+          - d1/extended_primary_use/other/raw/20210617/b.sas7bdat
+        expect_error: false
+      - name: cdap_csr
+        purpose: R1 CDAP csr branch gives primary without last folder
+        input:
+          files:
+            - d1/data_reuse/d000/d1/cdap_csr/adam/dev/data/a.sas7bdat
+          vars: {}
+          keys: {}
+        params: {}
+        expected:
+          - d1/extended_primary_use/primary/adam/a.sas7bdat
+        expect_error: false
+      - name: idap_and_others
+        purpose: R2 IDAP and R6 OTHERS use last folder
+        input:
+          files:
+            - d1/data_reuse/d2/d1/idap/sdtm/prod/data/x.sas7bdat
+            - d1/data_reuse/d2/d1/misc/adam/prod/data/y.xpt
+          vars: {}
+          keys: {}
+        params: {}
+        expected:
+          - d1/internal_reuse/sdtm/data/x.sas7bdat
+          - d1/other/adam/data/y.xpt
+        expect_error: false
+      - name: anon_interim
+        purpose: R4 ANON with last part starting with ia becomes interim ia_500
+        input:
+          files:
+            - d1/d1_sdtm_anon_ia500/f.sas7bdat
+          vars: {}
+          keys: {}
+        params: {}
+        expected:
+          - d1/anonymised/interim/sdtm/ia_500/f.sas7bdat
+        expect_error: false
+      - name: cdar_interim_underscore
+        purpose: R5 CDAR level ia_psc strips ia and leading underscore then prefixes ia_
+        input:
+          files:
+            - d1/root/cdar/d000/d1/ar/ia_psc/adam/dev/data/a.sas7bdat
+          vars: {}
+          keys: {}
+        params: {}
+        expected:
+          - d1/primary/interim/adam/ia_psc/a.sas7bdat
+        expect_error: false
+      - name: error_root_and_multiple_matches
+        purpose: Root file and two matching rules (R1 and R2) both go to error/ prefix, never dropped
+        input:
+          files:
+            - file.txt
+            - d1/data_reuse/x/cdap_2021/idap_2/raw/f.txt
+          vars: {}
+          keys: {}
+        params: {}
+        expected:
+          - error/file.txt
+          - error/d1/data_reuse/x/cdap_2021/idap_2/raw/f.txt
+        expect_error: false
+      - name: preset_key_kept_default_passthrough
+        purpose: Files with a key already set are untouched; R7 default passes path unchanged
+        input:
+          files:
+            - d1/keep/a.txt
+            - d1/docs/b.pdf
+          vars: {}
+          keys:
+            d1/keep/a.txt: custom/a.txt
+        params: {}
+        expected:
+          - custom/a.txt
+          - d1/docs/b.pdf
+        expect_error: false
+    custom_delivery:
+      - name: normal_move_replaces_tags
+        purpose: Copy, verify, delete source, replace tags with ADDITIONAL_TAG=path
+        input:
+          objects:
+            mybucket/incoming/s1/a.txt:
+              body: hello
+              tags:
+                old: x
+          transfers:
+            - path: s1/a.txt
+              source_bucket: mybucket
+              source_key: incoming/s1/a.txt
+              size: 5
+              etag:
+              target_bucket: mybucket
+              target_key: s1/other/adam/d/a.txt
+        params: {}
+        expected:
+          objects:
+            - mybucket/s1/other/adam/d/a.txt
+          tags:
+            mybucket/s1/other/adam/d/a.txt:
+              ADDITIONAL_TAG: s1/a.txt
+          statuses:
+            s1/a.txt: moved
+        expect_error: false
+      - name: move_to_error_prefix
+        purpose: Target under error/ gives moved_to_error, source deleted, does not fail
+        input:
+          objects:
+            mybucket/incoming/s1/bad/b.txt: data
+          transfers:
+            - path: s1/bad/b.txt
+              source_bucket: mybucket
+              source_key: incoming/s1/bad/b.txt
+              size: 4
+              etag:
+              target_bucket: mybucket
+              target_key: error/s1/bad/b.txt
+        params: {}
+        expected:
+          objects:
+            - mybucket/error/s1/bad/b.txt
+          statuses:
+            s1/bad/b.txt: moved_to_error
+        expect_error: false
+      - name: copy_fails_source_kept
+        purpose: Copy failure gives failed and leaves the source untouched
+        input:
+          objects:
+            mybucket/incoming/s1/a.txt: hello
+          transfers:
+            - path: s1/a.txt
+              source_bucket: mybucket
+              source_key: incoming/s1/a.txt
+              size: 5
+              etag:
+              target_bucket: mybucket
+              target_key: s1/other/a.txt
+          fail_calls:
+            - operation: CopyObject
+              key:
+        params: {}
+        expected:
+          objects:
+            - mybucket/incoming/s1/a.txt
+          statuses:
+            s1/a.txt: failed
+        expect_error: false
+      - name: tagging_failure_still_moved
+        purpose: Tagging failure is only a warning; file counts as moved and source is deleted
+        input:
+          objects:
+            mybucket/incoming/s1/a.txt: hello
+          transfers:
+            - path: s1/a.txt
+              source_bucket: mybucket
+              source_key: incoming/s1/a.txt
+              size: 5
+              etag:
+              target_bucket: mybucket
+              target_key: s1/other/a.txt
+          fail_calls:
+            - operation: PutObjectTagging
+              key:
+        params: {}
+        expected:
+          objects:
+            - mybucket/s1/other/a.txt
+          statuses:
+            s1/a.txt: moved
+        expect_error: false
+      - name: existing_target_overwritten
+        purpose: An existing target is overwritten and its tags replaced with exactly one tag
+        input:
+          objects:
+            mybucket/incoming/s1/a.txt: hello
+            mybucket/s1/other/a.txt:
+              body: older
+              tags:
+                stale: '1'
+          transfers:
+            - path: s1/a.txt
+              source_bucket: mybucket
+              source_key: incoming/s1/a.txt
+              size: 5
+              etag:
+              target_bucket: mybucket
+              target_key: s1/other/a.txt
+        params: {}
+        expected:
+          objects:
+            - mybucket/s1/other/a.txt
+          tags:
+            mybucket/s1/other/a.txt:
+              ADDITIONAL_TAG: s1/a.txt
+          statuses:
+            s1/a.txt: moved
+        expect_error: false
+      - name: delete_fails_source_stays
+        purpose: Delete failure gives failed; source stays so next run retries
+        input:
+          objects:
+            mybucket/incoming/s1/a.txt: hello
+          transfers:
+            - path: s1/a.txt
+              source_bucket: mybucket
+              source_key: incoming/s1/a.txt
+              size: 5
+              etag:
+              target_bucket: mybucket
+              target_key: s1/other/a.txt
+          fail_calls:
+            - operation: DeleteObject
+              key:
+        params: {}
+        expected:
+          objects:
+            - mybucket/incoming/s1/a.txt
+            - mybucket/s1/other/a.txt
+          statuses:
+            s1/a.txt: failed
+        expect_error: false
+planned_by:
+  task: plan_component
+  skill: planning-pipeline-components
+  skill_sha256: 7690c7e461337894d9a974196cfce1179f75f9cfb20f43d663bc098712022fc0
+  prompt_sha256: 50e193441b27cf7ddf3a0c5444ac5cfe47fb5e6788cf089bc370e5961d07e513
+  schema_sha256: 6c2d314e688ab2eb8b56d8679ba6c23f31b68deb03072c6dc1e898a70263ef01
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+tests_written_by:
+  compute_target_keys:
+    task: write_step_tests
+    skill: writing-step-tests
+    skill_sha256: 3a609951accc5dbcd8c79526c1a24efd822cbc5df6b906953a5916f90d486233
+    prompt_sha256: 87ec2ecf31a2a209a7358c069f559a42445078ce2f24ac2192b12cd50db51875
+    schema_sha256: 0027dcee8aeacb3f4dd075d87db8925e54c8107a66b2c25baba1587cfdd56120
+    model: claude-sonnet-5-5
+    prompt_version: '1'
+  custom_delivery:
+    task: write_step_tests
+    skill: writing-step-tests
+    skill_sha256: 3a609951accc5dbcd8c79526c1a24efd822cbc5df6b906953a5916f90d486233
+    prompt_sha256: e27590c79da17c0c720f3b5bd29ec7f9e4b0acba2423de0d0a833fa52fd8c5b8
+    schema_sha256: 0027dcee8aeacb3f4dd075d87db8925e54c8107a66b2c25baba1587cfdd56120
+    model: claude-sonnet-5-5
+    prompt_version: '1'
+simulation:
+  - example: cdar_csr
+    status: needs_code
+    detail: stops at custom step 'compute_target_keys' until its code exists
+    output:
+  - example: cdap_interim
+    status: needs_code
+    detail: stops at custom step 'compute_target_keys' until its code exists
+    output:
+  - example: med_rule
+    status: needs_code
+    detail: stops at custom step 'compute_target_keys' until its code exists
+    output:
+  - example: anon_other
+    status: needs_code
+    detail: stops at custom step 'compute_target_keys' until its code exists
+    output:
+  - example: default_passthrough
+    status: needs_code
+    detail: stops at custom step 'compute_target_keys' until its code exists
+    output:
+  - example: cdar_reporting_level_is_format_goes_to_error
+    status: needs_code
+    detail: stops at custom step 'compute_target_keys' until its code exists
+    output:
+plan_digest: 8293174d60ecbba2757f20822deeccb3ca89c47139580972bdfc12e17293bf61
+plan_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-17T10:43:00+00:00'
+  digest: 8293174d60ecbba2757f20822deeccb3ca89c47139580972bdfc12e17293bf61
+code:
+  file: sas_restructure_move.py
+  plan_digest: 8293174d60ecbba2757f20822deeccb3ca89c47139580972bdfc12e17293bf61
+  generated_by:
+    compute_target_keys:
+      task: write_custom_step
+      skill: writing-custom-step-code
+      skill_sha256: a25c6e64d500004dd112f9882097e73383aad328cdfcb55e3ee5af6ed8d54725
+      prompt_sha256: 652320edd88f6f5713c729fc37646c889778993f8fa585a7ee493e5ce9876509
+      schema_sha256: afe1d56d5b1920604e4d87a8531b1f4cfece87931964407d56ebdb1fae7aa4bc
+      model: claude-sonnet-5-5
+      prompt_version: '1'
+      explanation: "Implements the pseudocode: skips files with a preset key; root files go to error/; computes fp (folders
+        only), the non-anon and anon formats, and evaluates R1–R7 independently (error results count as matches). Exactly
+        one non-error match sets the key; zero, multiple or error sets 'error/'+path. Rule name or reason is stored in vars['rule:'+path].
+        I traced all 7 approved cases and the 6 examples by hand and they match; I did not run them."
+      attempts:
+        - attempt: 1
+          passed: true
+    custom_delivery:
+      task: write_custom_step
+      skill: writing-custom-step-code
+      skill_sha256: a25c6e64d500004dd112f9882097e73383aad328cdfcb55e3ee5af6ed8d54725
+      prompt_sha256: 740920bc6f1755f434fd4a2fe8cedab3a96dda4ae5665f5273958125cc7ab1f6
+      schema_sha256: afe1d56d5b1920604e4d87a8531b1f4cfece87931964407d56ebdb1fae7aa4bc
+      model: claude-sonnet-5-5
+      prompt_version: '1'
+      explanation: "Per transfer: server-side copy (CopySourceIfMatch if etag; SSE/KMS from ctx delivery), HEAD size check,
+        delete source only after confirmation, then replace tags with ADDITIONAL_TAG=path (skipped for error/ targets; failure
+        only a warning). Failures in copy/check/delete give 'failed' with the source kept (copy/check) or still present (delete).
+        Error targets give 'moved_to_error'. Layout vars are not available to delivery, so the detail is 'error/ prefix' for
+        errors (rule names can't be shown). I traced the six cases by hand and expect them to pass; I did not run them."
+      attempts:
+        - attempt: 1
+          passed: true
+  generated_at: '2026-10-17T10:43:41+00:00'
+  code_policy: open
+  sha256: fb9f00076f5c512df7ebda25191ac3fe0fca6fa0f85275deb6abccf18f9460fd
+  problems: []
+  tests:
+    - example: cdar_csr
+      status: pass
+      detail: matches the expected output
+    - example: cdap_interim
+      status: pass
+      detail: matches the expected output
+    - example: med_rule
+      status: pass
+      detail: matches the expected output
+    - example: anon_other
+      status: pass
+      detail: matches the expected output
+    - example: default_passthrough
+      status: pass
+      detail: matches the expected output
+    - example: cdar_reporting_level_is_format_goes_to_error
+      status: pass
+      detail: matches the expected output
+    - case: cdap_other
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: cdap_csr
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: idap_and_others
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: anon_interim
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: cdar_interim_underscore
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: error_root_and_multiple_matches
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: preset_key_kept_default_passthrough
+      step: compute_target_keys
+      status: pass
+      detail: matches the expected output
+    - case: normal_move_replaces_tags
+      step: custom_delivery
+      status: pass
+      detail: matches the expected output
+    - case: move_to_error_prefix
+      step: custom_delivery
+      status: pass
+      detail: matches the expected output
+    - case: copy_fails_source_kept
+      step: custom_delivery
+      status: pass
+      detail: matches the expected output
+    - case: tagging_failure_still_moved
+      step: custom_delivery
+      status: pass
+      detail: matches the expected output
+    - case: existing_target_overwritten
+      step: custom_delivery
+      status: pass
+      detail: matches the expected output
+    - case: delete_fails_source_stays
+      step: custom_delivery
+      status: pass
+      detail: matches the expected output
+  tested_at: '2026-10-17T10:43:42+00:00'
+code_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-17T10:44:09+00:00'
+  digest: a7d9abc4092dec2bcb98eb011f8e0bd8856873090128edae4069ad24e854ef66

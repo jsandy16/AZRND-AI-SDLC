@@ -1,0 +1,211 @@
+{
+ "version": 1,
+ "answers": [
+  {
+   "task": "analyze_requirements",
+   "output": {
+    "pipeline_name": "study_move",
+    "description": "Daily: move each study file under incoming/ to its study folder by rule (or to error/), then tag it.",
+    "requirement": "TRIGGER\n- Runs once a day on the schedule @daily (cron 0 0 * * *). No events. No retries.\n\nSOURCE\n- The study S3 bucket of the environment (bucket name set per environment), region eu-north-1.\n- List every object under the prefix incoming/, at any depth. Paths are relative to incoming/.\n- Skip silently: folder markers (keys ending in \"/\") and files directly under incoming/ with no study folder.\n- Each remaining file is its own package.\n\nTRANSFORMATION\n- None. Files are never opened or changed; only their location changes.\n\nDESTINATION (the same bucket)\n- Study = the first folder of the path. File = the file name.\n- Rule 1: the folder path contains /adam/ -> {study}/adam/{file}.\n- Rule 2: the folder path contains /sdtm/ -> {study}/sdtm/{file}.\n- No rule or both rules -> error/{path}. Never drop a file.\n- Record the rule (rule 1, rule 2, no rule, multiple rules) for the report of each file.\n\nDELIVERY BEHAVIOUR\n- Move, not copy: copy server-side, check the target size, then delete the source.\n- If the copy or the check fails, leave the source; that file fails.\n- After a move, set exactly one tag on the target: ADDITIONAL_TAG = the path. Files moved to error/ get no tag.\n- Report one line per file with the rule or the error reason.",
+    "pseudocode": "1. Daily schedule.\n2. List incoming/ in the study bucket; skip folder markers and files without a study folder.\n3. One package per file.\n4. Key: /adam/ -> {study}/adam/{file}; /sdtm/ -> {study}/sdtm/{file}; none or both -> error/{path}; record the rule.\n5. Move: copy, check size, delete the source; tag ADDITIONAL_TAG = path unless error/.\n6. Report one line per file with the rule.",
+    "examples_json": "[{\"name\": \"two_rules_and_error\", \"messages\": [], \"conf\": null, \"listing\": [\"incoming/S1/raw/adam/a.csv:10\", \"incoming/S1/raw/sdtm/b.csv:10\", \"incoming/S2/other/c.csv:10\", \"incoming/S1/:0\", \"incoming/readme.txt:5\"], \"params\": {}, \"expected_keys\": [\"S1/adam/a.csv\", \"S1/sdtm/b.csv\", \"error/S2/other/c.csv\"], \"expect_error\": false}, {\"name\": \"both_rules_is_an_error\", \"messages\": [], \"conf\": null, \"listing\": [\"incoming/S3/adam/sdtm/d.csv:10\"], \"params\": {}, \"expected_keys\": [\"error/S3/adam/sdtm/d.csv\"], \"expect_error\": false}]",
+    "assumptions": [
+     "Paths are relative to incoming/; the first folder is the study.",
+     "Rules look at the folder path only."
+    ],
+    "open_questions": []
+   }
+  },
+  {
+   "task": "decompose_pipeline",
+   "output": {
+    "summary": "A daily schedule starts one run. The source lists incoming/ in the study bucket, skips folder markers and files without a study folder, and makes each file its own package. The destination computes each file's key by two rules (adam, sdtm) or error/, and its delivery moves the file in the same bucket and tags it.",
+    "trigger": {
+     "name": "daily_trigger",
+     "reuse_existing": false,
+     "config_json": "{\"schedule\": \"@daily\", \"connection\": {}, \"params\": {}}",
+     "requirement": "",
+     "examples_json": "[]"
+    },
+    "source": {
+     "name": "study_incoming",
+     "reuse_existing": false,
+     "config_json": "{\"type\": \"s3\", \"connection\": {\"bucket\": \"<REQUIRED>\", \"region\": \"eu-north-1\"}, \"credentials\": {\"provider\": \"none\"}, \"params\": {}}",
+     "requirement": "Read from the study S3 bucket (region eu-north-1). List every object under incoming/ at any depth; paths are relative to incoming/. Skip folder markers (keys ending in '/') and files directly under incoming/ with no study folder. Each remaining file is its own package.",
+     "examples_json": "[{\"name\": \"one_package_per_file\", \"event\": null, \"listing\": [\"incoming/S1/raw/adam/a.csv:10\", \"incoming/S2/b.pdf:10\"], \"contents\": {}, \"params\": {}, \"expected_packages\": [[\"S1/raw/adam/a.csv\"], [\"S2/b.pdf\"]], \"expect_error\": false}, {\"name\": \"skips\", \"event\": null, \"listing\": [\"incoming/:0\", \"incoming/S1/:0\", \"incoming/readme.txt:5\", \"incoming/S1/x/c.csv:10\"], \"contents\": {}, \"params\": {}, \"expected_packages\": [[\"S1/x/c.csv\"]], \"expect_error\": false}]"
+    },
+    "has_transformation": false,
+    "transformation": {
+     "name": "none",
+     "reuse_existing": false,
+     "config_json": "{\"params\": {}}",
+     "requirement": "",
+     "examples_json": "[]"
+    },
+    "destination": {
+     "name": "study_moved",
+     "reuse_existing": false,
+     "config_json": "{\"type\": \"s3\", \"connection\": {\"bucket\": \"<REQUIRED>\", \"region\": \"eu-north-1\"}, \"credentials\": {\"provider\": \"none\"}, \"delivery\": {\"if_exists\": \"overwrite\", \"server_side_encryption\": null, \"write_success_marker\": false}, \"params\": {}}",
+     "requirement": "Deliver into the same S3 bucket as the source. Each package is one file; its path is relative to incoming/ and the first folder is the study. Rule 1: the folder path contains /adam/ -> {study}/adam/{file}. Rule 2: the folder path contains /sdtm/ -> {study}/sdtm/{file}. No rule or both rules -> error/{path}. Record the rule for the report. DELIVERY BEHAVIOUR: move, not copy: copy server-side, check the target size, then delete the source. If the copy or the check fails the source stays and the file fails. After a move set exactly one tag ADDITIONAL_TAG = the path; files moved to error/ get no tag. Report one line per file with the rule.",
+     "examples_json": "[{\"name\": \"adam_rule\", \"files\": [\"S1/raw/adam/a.csv\"], \"vars\": {\"package\": \"p1\"}, \"params\": {}, \"expected_keys\": [\"S1/adam/a.csv\"], \"expect_error\": false}, {\"name\": \"sdtm_rule\", \"files\": [\"S1/raw/sdtm/b.csv\"], \"vars\": {\"package\": \"p2\"}, \"params\": {}, \"expected_keys\": [\"S1/sdtm/b.csv\"], \"expect_error\": false}, {\"name\": \"no_rule_to_error\", \"files\": [\"S2/other/c.csv\"], \"vars\": {\"package\": \"p3\"}, \"params\": {}, \"expected_keys\": [\"error/S2/other/c.csv\"], \"expect_error\": false}]"
+    },
+    "package_name": "{source}_{ds_nodash}",
+    "pipeline_examples_json": "[{\"name\": \"two_rules_and_error\", \"messages\": [], \"conf\": null, \"listing\": [\"incoming/S1/raw/adam/a.csv:10\", \"incoming/S1/raw/sdtm/b.csv:10\", \"incoming/S2/other/c.csv:10\", \"incoming/S1/:0\", \"incoming/readme.txt:5\"], \"params\": {}, \"expected_keys\": [\"S1/adam/a.csv\", \"S1/sdtm/b.csv\", \"error/S2/other/c.csv\"], \"expect_error\": false}, {\"name\": \"both_rules_is_an_error\", \"messages\": [], \"conf\": null, \"listing\": [\"incoming/S3/adam/sdtm/d.csv:10\"], \"params\": {}, \"expected_keys\": [\"error/S3/adam/sdtm/d.csv\"], \"expect_error\": false}]",
+    "assumptions": [
+     "Source and destination are the same bucket.",
+     "The rules look at the folder path only, never at the file name."
+    ],
+    "ambiguities": []
+   }
+  },
+  {
+   "task": "plan_component",
+   "when": "Component kind: source",
+   "output": {
+    "summary": "Lists every object under incoming/, keeps files inside a study folder and makes each file its own package.",
+    "steps": [
+     {
+      "id": "list_incoming",
+      "op": "list",
+      "title": "List everything under incoming/",
+      "params_json": "{\"root\": \"incoming/\"}",
+      "pseudocode": ""
+     },
+     {
+      "id": "keep_study_files",
+      "op": "select",
+      "title": "Keep files inside a study folder",
+      "params_json": "{\"regex\": \"^[^/]+/(?:[^/]+/)*[^/]+$\"}",
+      "pseudocode": ""
+     },
+     {
+      "id": "one_package_per_file",
+      "op": "split",
+      "title": "One package per file",
+      "params_json": "{\"by\": \"regex\", \"regex\": \"^(?P<key>.+)$\"}",
+      "pseudocode": ""
+     }
+    ],
+    "assumptions": [
+     "Folder markers end in '/' and never match the regex."
+    ],
+    "ambiguities": []
+   }
+  },
+  {
+   "task": "plan_component",
+   "when": "Component kind: destination",
+   "output": {
+    "summary": "Computes each file's key by two folder rules (adam, sdtm) or error/, recording the rule; the delivery moves the file in the same bucket (copy, check, delete) and tags it, except under error/.",
+    "steps": [
+     {
+      "id": "route_files",
+      "op": "custom",
+      "title": "Work out the target key per file (rule 1, rule 2 or error/)",
+      "params_json": "{\"function\": \"route_files\"}",
+      "pseudocode": "For each path in layout['files'] without a key:\n1. parts = path.split('/'); study = parts[0]; file = parts[-1]; d = '/' + '/'.join(parts[1:-1]) + '/'.\n2. matched = rules whose condition holds: 1 if '/adam/' in d -> study/adam/file; 2 if '/sdtm/' in d -> study/sdtm/file.\n3. Exactly one match -> its key, and layout['vars']['reason:' + path] = 'rule <n>'. Otherwise key = 'error/' + path and the reason is 'no rule' or 'multiple rules'.\n4. Return layout."
+     },
+     {
+      "id": "move_and_tag",
+      "op": "custom_delivery",
+      "title": "Move files server-side, check, delete the source, tag the target",
+      "params_json": "{\"function\": \"move_and_tag\"}",
+      "pseudocode": "For each transfer t (independently; one result per transfer):\n1. reason = params['reason:' + t['path']] (set by route_files).\n2. Copy server-side with aws.s3_destination.copy(..., SourceClient=aws.s3_source); ctx['delivery']['if_exists'] is overwrite here.\n3. head_object the target; ContentLength must equal t['size'].\n4. Delete the source with aws.s3_source.delete_object.\n5. Unless the key starts with error/, put_object_tagging with exactly ADDITIONAL_TAG = t['path'] (a failure is only a warning).\n6. Result {'path', 'key', 'status': 'moved' or 'moved_to_error', 'detail': reason}; a failed copy/check/delete -> 'failed' with the error."
+     }
+    ],
+    "assumptions": [
+     "The rule recorded in layout['vars'] reaches the delivery as params['reason:' + path]."
+    ],
+    "ambiguities": []
+   }
+  },
+  {
+   "task": "write_step_tests",
+   "when": "Write test cases for the custom step `route_files`",
+   "output": {
+    "cases": [
+     {
+      "name": "adam_rule",
+      "purpose": "rule 1",
+      "input_json": "{\"files\": [\"S1/raw/adam/a.csv\"], \"vars\": {}, \"keys\": {}}",
+      "params_json": "{}",
+      "expected_json": "[\"S1/adam/a.csv\"]",
+      "expect_error": false
+     },
+     {
+      "name": "sdtm_rule",
+      "purpose": "rule 2",
+      "input_json": "{\"files\": [\"S1/raw/sdtm/b.csv\"], \"vars\": {}, \"keys\": {}}",
+      "params_json": "{}",
+      "expected_json": "[\"S1/sdtm/b.csv\"]",
+      "expect_error": false
+     },
+     {
+      "name": "no_rule_to_error",
+      "purpose": "no rule -> error/",
+      "input_json": "{\"files\": [\"S2/other/c.csv\"], \"vars\": {}, \"keys\": {}}",
+      "params_json": "{}",
+      "expected_json": "[\"error/S2/other/c.csv\"]",
+      "expect_error": false
+     },
+     {
+      "name": "both_rules_to_error",
+      "purpose": "two rules -> error/",
+      "input_json": "{\"files\": [\"S3/adam/sdtm/d.csv\"], \"vars\": {}, \"keys\": {}}",
+      "params_json": "{}",
+      "expected_json": "[\"error/S3/adam/sdtm/d.csv\"]",
+      "expect_error": false
+     }
+    ]
+   }
+  },
+  {
+   "task": "write_step_tests",
+   "when": "Write test cases for the custom step `move_and_tag`",
+   "output": {
+    "cases": [
+     {
+      "name": "normal_move_and_tag",
+      "purpose": "copy, check, delete, tag",
+      "input_json": "{\"objects\": {\"bkt/incoming/s/adam/a.txt\": \"hello\"}, \"transfers\": [{\"path\": \"s/adam/a.txt\", \"source_bucket\": \"bkt\", \"source_key\": \"incoming/s/adam/a.txt\", \"size\": 5, \"etag\": null, \"target_bucket\": \"bkt\", \"target_key\": \"s/adam/a.txt\"}]}",
+      "params_json": "{\"reason:s/adam/a.txt\": \"rule 1\"}",
+      "expected_json": "{\"objects\": [\"bkt/s/adam/a.txt\"], \"tags\": {\"bkt/s/adam/a.txt\": {\"ADDITIONAL_TAG\": \"s/adam/a.txt\"}}, \"statuses\": {\"s/adam/a.txt\": \"moved\"}}",
+      "expect_error": false
+     },
+     {
+      "name": "error_file_moved_no_tag",
+      "purpose": "error/ targets get no tag",
+      "input_json": "{\"objects\": {\"bkt/incoming/s/x/a.txt\": \"hello\"}, \"transfers\": [{\"path\": \"s/x/a.txt\", \"source_bucket\": \"bkt\", \"source_key\": \"incoming/s/x/a.txt\", \"size\": 5, \"etag\": null, \"target_bucket\": \"bkt\", \"target_key\": \"error/s/x/a.txt\"}]}",
+      "params_json": "{\"reason:s/x/a.txt\": \"rule 1\"}",
+      "expected_json": "{\"objects\": [\"bkt/error/s/x/a.txt\"], \"statuses\": {\"s/x/a.txt\": \"moved_to_error\"}}",
+      "expect_error": false
+     },
+     {
+      "name": "copy_fails_source_kept",
+      "purpose": "a failed copy keeps the source",
+      "input_json": "{\"objects\": {\"bkt/incoming/s/adam/a.txt\": \"hello\"}, \"transfers\": [{\"path\": \"s/adam/a.txt\", \"source_bucket\": \"bkt\", \"source_key\": \"incoming/s/adam/a.txt\", \"size\": 5, \"etag\": null, \"target_bucket\": \"bkt\", \"target_key\": \"s/adam/a.txt\"}], \"fail_calls\": [{\"operation\": \"CopyObject\", \"key\": null}]}",
+      "params_json": "{\"reason:s/adam/a.txt\": \"rule 1\"}",
+      "expected_json": "{\"objects\": [\"bkt/incoming/s/adam/a.txt\"], \"statuses\": {\"s/adam/a.txt\": \"failed\"}}",
+      "expect_error": false
+     }
+    ]
+   }
+  },
+  {
+   "task": "write_custom_step",
+   "when": "Write the custom step `route_files`",
+   "output": {
+    "function_source": "def route_files(layout, params, ctx):\n    for path in sorted(layout[\"files\"]):\n        if layout[\"keys\"].get(path) is not None:\n            continue\n        parts = path.split(\"/\")\n        study, name = parts[0], parts[-1]\n        d = \"/\" + \"/\".join(parts[1:-1]) + \"/\"\n        matched = []\n        if \"/adam/\" in d:\n            matched.append((1, study + \"/adam/\" + name))\n        if \"/sdtm/\" in d:\n            matched.append((2, study + \"/sdtm/\" + name))\n        if len(matched) == 1:\n            layout[\"keys\"][path] = matched[0][1]\n            layout[\"vars\"][\"reason:\" + path] = \"rule \" + str(matched[0][0])\n        else:\n            layout[\"keys\"][path] = \"error/\" + path\n            layout[\"vars\"][\"reason:\" + path] = \"no rule\" if not matched else \"multiple rules\"\n    return layout",
+    "explanation": "Two folder rules, error/ otherwise; the rule goes to layout vars."
+   }
+  },
+  {
+   "task": "write_custom_step",
+   "when": "Write the custom step `move_and_tag`",
+   "output": {
+    "function_source": "def move_and_tag(transfers, params, ctx, aws):\n    if_exists = ctx[\"delivery\"][\"if_exists\"]\n    results = []\n    for t in transfers:\n        reason = params[\"reason:\" + t[\"path\"]]\n        is_error = t[\"target_key\"].startswith(\"error/\")\n        res = {\"path\": t[\"path\"], \"key\": t[\"target_key\"], \"status\": \"failed\", \"detail\": reason}\n        try:\n            aws.s3_destination.copy({\"Bucket\": t[\"source_bucket\"], \"Key\": t[\"source_key\"]}, t[\"target_bucket\"], t[\"target_key\"],\n                                    SourceClient=aws.s3_source)\n            head = aws.s3_destination.head_object(Bucket=t[\"target_bucket\"], Key=t[\"target_key\"])\n            if head[\"ContentLength\"] != t[\"size\"]:\n                res[\"detail\"] = reason + \"; size mismatch after copy\"\n                results.append(res)\n                continue\n            aws.s3_source.delete_object(Bucket=t[\"source_bucket\"], Key=t[\"source_key\"])\n        except Exception as exc:\n            res[\"detail\"] = reason + \"; \" + type(exc).__name__ + \": \" + str(exc)\n            results.append(res)\n            continue\n        if not is_error:\n            try:\n                aws.s3_destination.put_object_tagging(Bucket=t[\"target_bucket\"], Key=t[\"target_key\"],\n                                                      Tagging={\"TagSet\": [{\"Key\": \"ADDITIONAL_TAG\", \"Value\": t[\"path\"]}]})\n            except Exception as exc:\n                aws.log.warning(\"tagging failed for %s: %s\", t[\"target_key\"], exc)\n        res[\"status\"] = \"moved_to_error\" if is_error else \"moved\"\n        aws.log.info(\"%s -> %s [%s] (if_exists=%s)\", t[\"source_key\"], t[\"target_key\"], reason, if_exists)\n        results.append(res)\n    return results",
+    "explanation": "Copy, check, delete, tag; the rule from params is the detail."
+   }
+  }
+ ]
+}

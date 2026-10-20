@@ -1,0 +1,9 @@
+# trigger `sas_schedule_45min`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every <REQUIRED>.
+api_version: pkf/v1
+kind: trigger
+name: sas_schedule_45min
+description: from the trigger part of the pipeline requirement
+schedule: '*/45 * * * *'
+connection:
+  region: eu-north-1
+params: {}

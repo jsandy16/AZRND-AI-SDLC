@@ -1,0 +1,14 @@
+# Raw zone of the R&D data lake.
+api_version: pkf/v1
+kind: destination
+name: lake_raw
+type: s3
+description: R&D lake raw zone
+connection: {bucket: az-rd-lake-raw, region: eu-west-1, endpoint_url: null}
+credentials: {provider: none}       # the Airflow worker's IAM role
+delivery:
+  prefix: "raw/{source}/{ds}/{package}/"
+  if_exists: skip_identical
+  server_side_encryption: aws:kms
+  kms_key_id: null
+  write_success_marker: true

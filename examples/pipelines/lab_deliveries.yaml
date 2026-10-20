@@ -1,0 +1,13 @@
+api_version: pkf/v1
+kind: pipeline
+name: lab_deliveries
+description: Central lab deliveries, control-checked and restructured
+owner: clinical-data-eng
+connection: lab_to_lake
+transformation: lab_control_check
+package_name: "lab_{ds_nodash}"
+params: {}
+schedule: "30 3 * * *"
+start_date: 2026-10-01
+task_split: per_step
+tags: [lab]

@@ -1,0 +1,7 @@
+api_version: pkf/v1
+kind: connection
+name: cro_to_lake
+description: ""
+source: cro_https
+destination: lake_raw
+check_before_run: true

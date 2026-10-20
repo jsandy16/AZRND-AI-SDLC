@@ -1,0 +1,7 @@
+api_version: pkf/v1
+kind: connection
+name: lab_to_lake
+description: ""
+source: lab_sftp
+destination: lake_raw
+check_before_run: true

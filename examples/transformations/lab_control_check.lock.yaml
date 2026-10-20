@@ -1,0 +1,264 @@
+# transformations/lab_control_check.lock.yaml — plan, step tests, simulation, code tests and approvals.
+# Written by `pkf plan/code/test/approve-…`; approvals are a person's decision. Do not edit by hand.
+lock_version: 2
+kind: transformation
+name: lab_control_check
+requirement_sha256: 23ae2860a95d43d5a7cf763ba46d15a11b6f5e6b8202d0f2bd6e0d98cb8dace4
+plan:
+  summary: Checks each top-level delivery folder has exactly one CONTROL_<n>.txt whose n equals the number of other 
+    files in that folder (sub-folders included), and refuses the whole package otherwise. It then removes the control 
+    files, moves every remaining file to data/<delivery>/<file name>, computes md5 and sha256, and writes manifest.csv 
+    at the root.
+  steps:
+    - id: check_control_files
+      op: custom
+      title: Verify each delivery folder has one control file with a matching file count
+      params:
+        function: check_control_files
+      pseudocode: "1. files = pkg.files(); if empty, pkg.fail('empty package').\n2. For each path, split on '/'. If a path
+        has no '/' (file at package root), pkg.fail('file outside a delivery folder').\n3. Group paths by first segment (delivery
+        folder).\n4. For each folder: controls = paths whose remaining part is exactly one segment (directly in the folder)
+        and whose name fully matches CONTROL_(\\d+)\\.txt. Also, any file deeper in the folder whose name matches that pattern
+        counts as an extra control file.\n5. If the number of control files != 1, pkg.fail naming the folder (missing or multiple).\n\
+        6. n = number in the control file name; others = number of files in the folder minus the control file (sub-folders
+        included).\n7. If n != others, pkg.fail naming folder, expected n and actual count.\n8. Make no changes to the package."
+    - id: drop_control_files
+      op: select
+      title: Remove the control files
+      params:
+        exclude:
+          - '*/CONTROL_*.txt'
+    - id: move_to_data
+      op: move
+      title: Move files to data/<delivery folder>/<file name>, dropping sub-folders
+      params:
+        match: (?P<delivery>[^/]+)/(?:.*/)?(?P<fname>[^/]+)
+        to: data/{delivery}/{fname}
+    - id: compute_checksums
+      op: checksum
+      title: Compute md5 and sha256 for every file
+      params:
+        algorithms:
+          - md5
+          - sha256
+    - id: write_manifest
+      op: manifest
+      title: Write manifest.csv with path, size, md5, sha256
+      params:
+        path: manifest.csv
+        format: csv
+        fields:
+          - path
+          - size
+          - md5
+          - sha256
+  assumptions:
+    - The control file must sit directly in the delivery folder; a CONTROL_*.txt in a sub-folder counts as an extra 
+      control file and the package is refused.
+    - The count n covers all files in the delivery folder at any depth except the control file itself.
+    - A file at the package root (outside any delivery folder) is refused.
+    - Two files with the same name in one delivery folder (e.g. in different sub-folders) fail the move because of name 
+      conflicts.
+    - The manifest does not list itself, because it is written after the checksums.
+  ambiguities: []
+  step_tests:
+    check_control_files:
+      - name: two_deliveries_ok
+        purpose: Normal path; sub-folder files count; package unchanged
+        input:
+          files:
+            - D001/CONTROL_2.txt
+            - D001/a.csv
+            - D001/sub/b.csv
+            - D002/CONTROL_1.txt
+            - D002/c.csv
+        params: {}
+        expected:
+          - D001/CONTROL_2.txt
+          - D001/a.csv
+          - D001/sub/b.csv
+          - D002/CONTROL_1.txt
+          - D002/c.csv
+        expect_error: false
+      - name: zero_other_files
+        purpose: CONTROL_0 with no other files is valid
+        input:
+          files:
+            - D001/CONTROL_0.txt
+        params: {}
+        expected:
+          - D001/CONTROL_0.txt
+        expect_error: false
+      - name: empty_package
+        purpose: Empty package refused
+        input:
+          files: []
+        params: {}
+        expected:
+        expect_error: true
+      - name: file_at_root
+        purpose: File at package root refused
+        input:
+          files:
+            - readme.txt
+            - D001/CONTROL_0.txt
+        params: {}
+        expected:
+        expect_error: true
+      - name: missing_control
+        purpose: Folder without control file refused
+        input:
+          files:
+            - D001/CONTROL_1.txt
+            - D001/a.csv
+            - D002/b.csv
+        params: {}
+        expected:
+        expect_error: true
+      - name: multiple_controls
+        purpose: Two control files in one folder refused
+        input:
+          files:
+            - D001/CONTROL_1.txt
+            - D001/CONTROL_2.txt
+            - D001/a.csv
+        params: {}
+        expected:
+        expect_error: true
+      - name: nested_extra_control
+        purpose: Control-named file deeper counts as extra control, so refused
+        input:
+          files:
+            - D001/CONTROL_2.txt
+            - D001/a.csv
+            - D001/sub/CONTROL_1.txt
+        params: {}
+        expected:
+        expect_error: true
+      - name: count_mismatch
+        purpose: n differs from actual count refused
+        input:
+          files:
+            - D001/CONTROL_3.txt
+            - D001/a.csv
+            - D001/b.csv
+        params: {}
+        expected:
+        expect_error: true
+planned_by:
+  task: plan_component
+  skill: planning-pipeline-components
+  skill_sha256: 1bc7dd2f04fb60afbbed488175c47d16e54e42c3a79da8f1ac975cedb3767078
+  prompt_sha256: 5e10fac307c68a489b73baf0a08443010a724010e765f261f75864348b14cd83
+  schema_sha256: 6c2d314e688ab2eb8b56d8679ba6c23f31b68deb03072c6dc1e898a70263ef01
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+tests_written_by:
+  check_control_files:
+    task: write_step_tests
+    skill: writing-step-tests
+    skill_sha256: f6c5c226727fdd09cf9fe0a91df32d24794ed8e9145d276f499587823aa4783e
+    prompt_sha256: 37c1cda5ab919c9c0890257b2aa10fc130f3e97eaafee31ea02b9cbd38d0b882
+    schema_sha256: 0027dcee8aeacb3f4dd075d87db8925e54c8107a66b2c25baba1587cfdd56120
+    model: claude-sonnet-5-5
+    prompt_version: '1'
+simulation:
+  - example: two_deliveries
+    status: needs_code
+    detail: stops at custom step 'check_control_files' until its code exists
+    output:
+      - D001/CONTROL_2.txt
+      - D001/lb_a.csv
+      - D001/sub/lb_b.csv
+      - D002/CONTROL_1.txt
+      - D002/lb_c.csv
+  - example: count_mismatch
+    status: needs_code
+    detail: stops at custom step 'check_control_files' until its code exists
+    output:
+      - D001/CONTROL_3.txt
+      - D001/lb_a.csv
+      - D001/lb_b.csv
+  - example: missing_control
+    status: needs_code
+    detail: stops at custom step 'check_control_files' until its code exists
+    output:
+      - D001/lb_a.csv
+plan_digest: eb3b348e625bcd53e3e45f29555f44b3517e8fdc5da693785d6ad0f57aaba1aa
+plan_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-16T12:43:58+00:00'
+  digest: eb3b348e625bcd53e3e45f29555f44b3517e8fdc5da693785d6ad0f57aaba1aa
+code:
+  file: lab_control_check.py
+  plan_digest: eb3b348e625bcd53e3e45f29555f44b3517e8fdc5da693785d6ad0f57aaba1aa
+  generated_by:
+    check_control_files:
+      task: write_custom_step
+      skill: writing-custom-step-code
+      skill_sha256: 40c86a2687385621818026e58b6c86267192e63516e86b491d357e1f7ea30f3c
+      prompt_sha256: 5f52e1ddf693d4bd806f66ecec6aeb89564f1d0ec14f211a17ae3e77a0bea377
+      schema_sha256: afe1d56d5b1920604e4d87a8531b1f4cfece87931964407d56ebdb1fae7aa4bc
+      model: claude-sonnet-5-5
+      prompt_version: '1'
+      explanation: "Follows the pseudocode: fails on an empty package, then fails on any root-level file. Groups paths by
+        first segment. Counts files whose name fully matches CONTROL_(\\d+)\\.txt at any depth, so a nested control counts
+        as an extra one, and fails unless there is exactly one. Compares n with the folder's file count minus the control
+        file. The package is never modified. I traced all 8 test cases and the 3 examples by hand and they behave as expected;
+        I did not run them. Failure messages name the delivery folder and the expected and actual counts, as the pseudocode
+        asks. The skill says to keep data values out of messages, so the folder name is the one deliberate exception."
+      attempts:
+        - attempt: 1
+          passed: true
+  generated_at: '2026-10-16T12:44:17+00:00'
+  sha256: 64c75309eba4022214cbfc8e84f44389637dd16c379180f8b6969949f242bb14
+  problems: []
+  tests:
+    - example: two_deliveries
+      status: pass
+      detail: matches the expected output
+    - example: count_mismatch
+      status: pass
+      detail: 'check_control_files: delivery folder D001 control count mismatch: expected 3, actual 2'
+    - example: missing_control
+      status: pass
+      detail: 'check_control_files: delivery folder D001 must have exactly one control file, found 0'
+    - case: two_deliveries_ok
+      step: check_control_files
+      status: pass
+      detail: matches the expected output
+    - case: zero_other_files
+      step: check_control_files
+      status: pass
+      detail: matches the expected output
+    - case: empty_package
+      step: check_control_files
+      status: pass
+      detail: 'PackageError: empty package'
+    - case: file_at_root
+      step: check_control_files
+      status: pass
+      detail: 'PackageError: file outside a delivery folder'
+    - case: missing_control
+      step: check_control_files
+      status: pass
+      detail: 'PackageError: delivery folder D002 must have exactly one control file, found 0'
+    - case: multiple_controls
+      step: check_control_files
+      status: pass
+      detail: 'PackageError: delivery folder D001 must have exactly one control file, found 2'
+    - case: nested_extra_control
+      step: check_control_files
+      status: pass
+      detail: 'PackageError: delivery folder D001 must have exactly one control file, found 2'
+    - case: count_mismatch
+      step: check_control_files
+      status: pass
+      detail: 'PackageError: delivery folder D001 control count mismatch: expected 3, actual 2'
+  tested_at: '2026-10-16T12:44:17+00:00'
+code_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-16T12:44:18+00:00'
+  digest: b17bb727615ef506ce5ad708277967324bdd75e8ea4d643bfbf2bbc789936e4f

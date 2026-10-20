@@ -1,0 +1,56 @@
+# source `partner_drop_event_objects`: written from the approved split of pipeline `partner_zip_copy` (@claude-demo). Fill in every <REQUIRED>.
+api_version: pkf/v1
+kind: source
+name: partner_drop_event_objects
+description: from the source part of the pipeline requirement
+type: s3
+connection:
+  bucket: partner-drop-bucket
+  region: eu-west-1
+credentials:
+  provider: none
+params: {}
+requirement: "Read from S3 bucket partner-drop-bucket (region eu-west-1). Do not list the bucket. For each event, take exactly
+  the object the event names. Its key must be under the root incoming/; the root is removed from the path, so the file's path
+  is the path below incoming/ (for example incoming/study1/data.zip gives study1/data.zip). Each event gives one package with
+  that single file. An object whose key is not under incoming/ fails the package.\n"
+examples:
+  - name: single_zip
+    event:
+      objects:
+        - key: incoming/study1/data.zip
+          bucket: partner-drop-bucket
+      vars: {}
+    listing:
+      - incoming/study1/data.zip:123
+      - incoming/study1/other.zip:99
+    contents: {}
+    params: {}
+    expected_packages:
+      -   - study1/data.zip
+    expect_error: false
+  - name: zip_directly_under_incoming
+    event:
+      objects:
+        - key: incoming/data.zip
+          bucket: partner-drop-bucket
+      vars: {}
+    listing:
+      - incoming/data.zip:10
+    contents: {}
+    params: {}
+    expected_packages:
+      -   - data.zip
+    expect_error: false
+  - name: key_outside_root_fails
+    event:
+      objects:
+        - key: other/data.zip
+          bucket: partner-drop-bucket
+      vars: {}
+    listing:
+      - other/data.zip:10
+    contents: {}
+    params: {}
+    expected_packages: []
+    expect_error: true

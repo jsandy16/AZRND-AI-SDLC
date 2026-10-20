@@ -1,0 +1,306 @@
+# pipelines/partner_zip_copy.lock.yaml — the AI's split of the pipeline requirement and its approval.
+# Written by `pkf plan pipeline` / `pkf approve-plan pipeline`. Do not edit by hand.
+lock_version: 1
+pipeline: partner_zip_copy
+requirement_sha256: d8eb2d80e4f246999ad963b8a81206591eef9a1496274409e8f1c2ed726e86a2
+split:
+  summary: Every 5 minutes the DAG reads S3 event notifications from the SQS queue partner-drop-events. The trigger 
+    parses each body, drops S3 test events, and keeps only .zip objects under incoming/ in partner-drop-bucket. It emits
+    one event per zip, and each zip becomes its own package named after the file without its extension. The source takes
+    exactly the object the event names and strips the incoming/ root, so paths start below incoming/. Nothing is 
+    transformed. The destination writes each file unchanged to az-rd-lake-raw under landing/partner/<event date>/<path 
+    below incoming/>, and skips it if an identical object already exists. The SQS message is deleted only after all of 
+    its packages are delivered.
+  components:
+    trigger:
+      name: partner_drop_sqs
+      reuse: false
+      spec:
+        api_version: pkf/v1
+        kind: trigger
+        name: partner_drop_sqs
+        description: from the trigger part of the pipeline requirement
+        schedule: '*/5 * * * *'
+        connection:
+          region: eu-west-1
+        params:
+          queue_url: https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events
+        requirement: "Every 5 minutes read messages from the SQS queue https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events.
+          Each message body is an S3 event notification (not wrapped in SNS) from bucket partner-drop-bucket. Parse the JSON
+          and turn each record into one event for the object (URL-decoded key). Ignore s3:TestEvent messages. Keep only objects
+          in bucket partner-drop-bucket whose key starts with incoming/ and ends with .zip; drop all other objects, and drop
+          events left without objects. Each zip is its own package, so do not group events. Name each package after the zip
+          file without its extension, i.e. {event_key_stem}. A message is deleted only after all its packages are delivered.\n"
+        examples:
+          - name: zip_under_incoming
+            messages:
+              - Records:
+                  - eventVersion: '2.1'
+                    eventSource: aws:s3
+                    eventName: ObjectCreated:Put
+                    eventTime: '2024-03-01T10:00:00.000Z'
+                    s3:
+                      bucket:
+                        name: partner-drop-bucket
+                      object:
+                        key: incoming/study1/data_20240301.zip
+                        size: 123
+            conf:
+            params: {}
+            expected_events:
+              - keys:
+                  - incoming/study1/data_20240301.zip
+                vars:
+                  event_bucket: partner-drop-bucket
+                  event_date: '2024-03-01'
+                  event_key_stem: data_20240301
+            expect_error: false
+          - name: s3_test_event_ignored
+            messages:
+              - Service: Amazon S3
+                Event: s3:TestEvent
+                Bucket: partner-drop-bucket
+            conf:
+            params: {}
+            expected_events: []
+            expect_error: false
+          - name: non_zip_ignored
+            messages:
+              - Records:
+                  - eventVersion: '2.1'
+                    eventSource: aws:s3
+                    eventName: ObjectCreated:Put
+                    eventTime: '2024-03-01T10:00:00.000Z'
+                    s3:
+                      bucket:
+                        name: partner-drop-bucket
+                      object:
+                        key: incoming/study1/readme.txt
+                        size: 10
+            conf:
+            params: {}
+            expected_events: []
+            expect_error: false
+          - name: url_encoded_key
+            messages:
+              - Records:
+                  - eventVersion: '2.1'
+                    eventSource: aws:s3
+                    eventName: ObjectCreated:Put
+                    eventTime: '2024-03-01T10:00:00.000Z'
+                    s3:
+                      bucket:
+                        name: partner-drop-bucket
+                      object:
+                        key: incoming/study+1/my+file.zip
+                        size: 50
+            conf:
+            params: {}
+            expected_events:
+              - keys:
+                  - incoming/study 1/my file.zip
+                vars:
+                  event_key_stem: my file
+                  event_date: '2024-03-01'
+            expect_error: false
+          - name: zip_outside_incoming_ignored
+            messages:
+              - Records:
+                  - eventVersion: '2.1'
+                    eventSource: aws:s3
+                    eventName: ObjectCreated:Put
+                    eventTime: '2024-03-01T10:00:00.000Z'
+                    s3:
+                      bucket:
+                        name: partner-drop-bucket
+                      object:
+                        key: other/x.zip
+                        size: 5
+            conf:
+            params: {}
+            expected_events: []
+            expect_error: false
+    source:
+      name: partner_drop_event_objects
+      reuse: false
+      spec:
+        api_version: pkf/v1
+        kind: source
+        name: partner_drop_event_objects
+        description: from the source part of the pipeline requirement
+        type: s3
+        connection:
+          bucket: partner-drop-bucket
+          region: eu-west-1
+        credentials:
+          provider: none
+        params: {}
+        requirement: "Read from S3 bucket partner-drop-bucket (region eu-west-1). Do not list the bucket. For each event,
+          take exactly the object the event names. Its key must be under the root incoming/; the root is removed from the
+          path, so the file's path is the path below incoming/ (for example incoming/study1/data.zip gives study1/data.zip).
+          Each event gives one package with that single file. An object whose key is not under incoming/ fails the package.\n"
+        examples:
+          - name: single_zip
+            event:
+              objects:
+                - key: incoming/study1/data.zip
+                  bucket: partner-drop-bucket
+              vars: {}
+            listing:
+              - incoming/study1/data.zip:123
+              - incoming/study1/other.zip:99
+            contents: {}
+            params: {}
+            expected_packages:
+              -   - study1/data.zip
+            expect_error: false
+          - name: zip_directly_under_incoming
+            event:
+              objects:
+                - key: incoming/data.zip
+                  bucket: partner-drop-bucket
+              vars: {}
+            listing:
+              - incoming/data.zip:10
+            contents: {}
+            params: {}
+            expected_packages:
+              -   - data.zip
+            expect_error: false
+          - name: key_outside_root_fails
+            event:
+              objects:
+                - key: other/data.zip
+                  bucket: partner-drop-bucket
+              vars: {}
+            listing:
+              - other/data.zip:10
+            contents: {}
+            params: {}
+            expected_packages: []
+            expect_error: true
+    destination:
+      name: partner_landing
+      reuse: false
+      spec:
+        api_version: pkf/v1
+        kind: destination
+        name: partner_landing
+        description: from the destination part of the pipeline requirement
+        type: s3
+        connection:
+          bucket: az-rd-lake-raw
+          region: eu-west-1
+        credentials:
+          provider: none
+        delivery:
+          prefix: landing/partner/{event_date}/
+          if_exists: skip_identical
+          server_side_encryption:
+          write_success_marker: false
+        params: {}
+  errors: []
+  package_name: '{event_key_stem}'
+  pipeline_examples:
+    - name: zip_copied_with_event_date
+      messages:
+        - Records:
+            - eventVersion: '2.1'
+              eventSource: aws:s3
+              eventName: ObjectCreated:Put
+              eventTime: '2024-03-01T10:00:00.000Z'
+              s3:
+                bucket:
+                  name: partner-drop-bucket
+                object:
+                  key: incoming/study1/data_20240301.zip
+                  size: 123
+      conf:
+      listing:
+        - incoming/study1/data_20240301.zip:123
+      params: {}
+      expected_keys:
+        - landing/partner/2024-03-01/study1/data_20240301.zip
+      expect_error: false
+    - name: test_event_and_non_zip_ignored
+      messages:
+        - Service: Amazon S3
+          Event: s3:TestEvent
+          Bucket: partner-drop-bucket
+        - Records:
+            - eventVersion: '2.1'
+              eventSource: aws:s3
+              eventName: ObjectCreated:Put
+              eventTime: '2024-03-01T10:00:00.000Z'
+              s3:
+                bucket:
+                  name: partner-drop-bucket
+                object:
+                  key: incoming/study1/readme.txt
+                  size: 10
+      conf:
+      listing:
+        - incoming/study1/readme.txt:10
+      params: {}
+      expected_keys: []
+      expect_error: false
+    - name: url_encoded_key_decoded
+      messages:
+        - Records:
+            - eventVersion: '2.1'
+              eventSource: aws:s3
+              eventName: ObjectCreated:Put
+              eventTime: '2024-03-01T10:00:00.000Z'
+              s3:
+                bucket:
+                  name: partner-drop-bucket
+                object:
+                  key: incoming/study+1/my+file.zip
+                  size: 50
+      conf:
+      listing:
+        - incoming/study 1/my file.zip:50
+      params: {}
+      expected_keys:
+        - landing/partner/2024-03-01/study 1/my file.zip
+      expect_error: false
+  assumptions:
+    - "No existing component fits unchanged: archive_bucket lists incoming/{ds} instead of taking the event's object, and
+      lake_raw uses a different prefix, KMS and a success marker. So the source and destination are new."
+    - The S3 notification goes straight to SQS, not through SNS, so unwrap_sns is not needed.
+    - Only keys ending in lowercase .zip count as zips. Matching is on the key, not the content.
+    - The destination prefix can use the event variable {event_date}, which is the date of the event (UTC date of 
+      eventTime). The path below incoming/ is kept after the prefix.
+    - The package name is {event_key_stem}, the file name without its extension. It does not appear in the destination 
+      key.
+    - Server-side encryption is not stated, so it is set to null and the bucket's default applies. The success marker is
+      off because the files are copied unchanged.
+    - The queue batch size (max_messages) is not stated, so the trigger's default is used.
+    - Credentials come from the runtime role (provider none), and the text names no secrets.
+  ambiguities: []
+  to_fill_in: []
+owned:
+  -   - connection
+      - partner_zip_copy_connection
+  -   - destination
+      - partner_landing
+  -   - source
+      - partner_drop_event_objects
+  -   - trigger
+      - partner_drop_events
+  -   - trigger
+      - partner_drop_sqs
+split_by:
+  task: decompose_pipeline
+  skill: decomposing-pipeline-requirements
+  skill_sha256: 1ce8bec95a57b0b545386c0ec745d2fea7c66121f69ffaa62a142479ee4d4004
+  prompt_sha256: 307659f9c6e13614ce4025dd0e6e442e40eeef5a7c5fd34ffd227c0c5369d45b
+  schema_sha256: 8f8f0c94338e8a18c5595e6fc893838a63995bcdbc67c49f9f9b19853077de24
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+split_digest: 72e114aae42caf89f822b87e644fca0eaf72e61314924194630712e12ffabef1
+split_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-16T12:42:11+00:00'
+  digest: 72e114aae42caf89f822b87e644fca0eaf72e61314924194630712e12ffabef1

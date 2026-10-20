@@ -1,0 +1,5 @@
+api_version: pkf/v1
+kind: connection
+name: partner_zip_copy_connection
+source: partner_drop_event_objects
+destination: partner_landing

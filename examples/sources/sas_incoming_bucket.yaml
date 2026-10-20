@@ -1,0 +1,52 @@
+# source `sas_incoming_bucket`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every dev-dpl-dstore-sas-eu-north-1-992382551516.
+api_version: pkf/v1
+kind: source
+name: sas_incoming_bucket
+description: from the source part of the pipeline requirement
+type: s3
+connection:
+  bucket: dev-dpl-dstore-sas-eu-north-1-992382551516
+  region: eu-north-1
+credentials:
+  provider: none
+params: {}
+requirement: "The source is the environment's SAS S3 bucket in region eu-north-1. List every object under the prefix incoming/
+  at any depth; package paths are relative to incoming/ (the incoming/ prefix is removed). Skip silently (do not move, do
+  not report) these: folder markers (keys ending in \"/\"), files directly under incoming/ with no study folder (e.g. incoming/readme.txt),
+  and files whose name has no \".\" extension. Each remaining file is its own package (one package per file), so a problem
+  with one file does not stop the others. The study ID is the first folder after incoming/, used exactly as written (case
+  and hyphens kept).\n"
+examples:
+  - name: one_package_per_file
+    event:
+    listing:
+      - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat:10
+      - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/b.sas7bdat:20
+    contents: {}
+    params: {}
+    expected_packages:
+      -   - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat
+      -   - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/b.sas7bdat
+    expect_error: false
+  - name: skips_markers_root_files_and_no_extension
+    event:
+    listing:
+      - incoming/:0
+      - incoming/04-3077/:0
+      - incoming/readme.txt:10
+      - incoming/04-3077/root/data_reuse/d525/04-3077/shared/adam/prod/data/no_extension:10
+      - incoming/04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat:10
+    contents: {}
+    params: {}
+    expected_packages:
+      -   - 04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat
+    expect_error: false
+  - name: study_id_case_and_hyphen_kept
+    event:
+    listing:
+      - incoming/ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf:10
+    contents: {}
+    params: {}
+    expected_packages:
+      -   - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+    expect_error: false

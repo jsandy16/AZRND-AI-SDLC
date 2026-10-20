@@ -1,0 +1,31 @@
+# The example from the requirements: bundle a site-structured CSV export into one study zip with a manifest.
+api_version: pkf/v1
+kind: transformation
+name: csv_zip_bundle
+description: Study CSV export → one zip per study and day, with a manifest
+requirement: |
+  Keep only CSV files. Every CSV file must be directly inside a folder named SITE_ followed by exactly four digits
+  (for example SITE_0001/visits.csv); refuse the package if any file is elsewhere or if there are no CSV files.
+  Bundle all CSV files into one zip archive named <study>_<ds_nodash>.zip, keeping the SITE_xxxx folders inside
+  the archive. Next to the zip, write manifest.json listing the zip file with its size, md5 and sha256. The package
+  name becomes <study>_<ds_nodash>.
+params:
+  study: D1234C00001
+examples:
+  - name: typical
+    input: ["SITE_0001/visits.csv:1200", "SITE_0001/issues.csv:300", "SITE_0002/visits.csv:900", "SITE_0002/notes.txt"]
+    params: {ds_nodash: "20240301"}
+    expected_output:
+      - D1234C00001_20240301.zip
+      - D1234C00001_20240301.zip!/SITE_0001/issues.csv
+      - D1234C00001_20240301.zip!/SITE_0001/visits.csv
+      - D1234C00001_20240301.zip!/SITE_0002/visits.csv
+      - manifest.json
+  - name: file_outside_site_folder
+    input: ["SITE_0001/visits.csv", "summary.csv"]
+    params: {ds_nodash: "20240301"}
+    expect_error: true
+  - name: bad_site_folder_name
+    input: ["SITE_12/visits.csv"]
+    params: {ds_nodash: "20240301"}
+    expect_error: true

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "package-factory"
+version = "0.8.2"
+description = "Spec-driven, AI-assisted generation of Airflow 3 ingestion pipelines that move data packages"
+requires-python = ">=3.11"
+# pkf_runtime (installed on Airflow workers) needs only pydantic (already part of Airflow) and the source drivers.
+dependencies = ["pydantic>=2.9,<3", "ruamel.yaml>=0.18,<0.20", "pyyaml>=6"]
+
+[project.optional-dependencies]
+runtime = ["boto3>=1.35", "paramiko>=3.5,<6"]
+agent = ["claude-agent-sdk==0.2.165", "boto3>=1.35", "moto>=5"]
+studio = ["streamlit>=1.66,<2", "requests>=2.32", "python-docx>=1.1", "pypdf>=5", "psutil>=6", "boto3>=1.35"]
+dev = ["pytest>=8", "moto[server]>=5", "asyncssh>=2.14", "pyftpdlib>=2", "pyopenssl", "python-hcl2>=7"]
+
+[project.scripts]
+pkf = "pkf.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pkf_studio = ["ui/static/wfd/*", "ui/static/*.svg", "assistant/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

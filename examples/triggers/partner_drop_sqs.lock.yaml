@@ -1,0 +1,115 @@
+# triggers/partner_drop_sqs.lock.yaml — plan, step tests, simulation, code tests and approvals.
+# Written by `pkf plan/code/test/approve-…`; approvals are a person's decision. Do not edit by hand.
+lock_version: 2
+kind: trigger
+name: partner_drop_sqs
+requirement_sha256: c3d52d811d342a36793bfa8a8372d78be367e215ea4b2b87a3f52c11af7e2bca
+plan:
+  summary: Reads up to 100 messages per run from the partner-drop SQS queue. It parses each body as an S3 event 
+    notification and makes one event per record, with the key URL-decoded. S3 test events are ignored. Only objects in 
+    partner-drop-bucket with keys under incoming/ ending in .zip are kept. Each zip stays its own package, named after 
+    the file without its extension. A message is deleted only after all its packages are delivered.
+  steps:
+    - id: receive_sqs
+      op: sqs
+      title: Read messages from the partner drop queue
+      params:
+        queue_url: '{queue_url}'
+    - id: parse_body
+      op: parse_json
+      title: Parse each message body as JSON
+      params: {}
+    - id: unwrap_sns_if_any
+      op: unwrap_sns
+      title: Unwrap SNS envelope if present (harmless otherwise)
+      params: {}
+    - id: s3_records_to_events
+      op: s3_records
+      title: Turn each S3 record into one event, ignoring test events
+      params: {}
+    - id: keep_incoming_zips
+      op: filter
+      title: Keep only .zip objects under incoming/ in partner-drop-bucket
+      params:
+        bucket: partner-drop-bucket
+        include:
+          - incoming/**/*.zip
+    - id: name_package
+      op: set_vars
+      title: Name each package after the zip file without extension
+      params:
+        vars:
+          package_name: '{event_key_stem}'
+  assumptions:
+    - The 5-minute cadence is the schedule of the trigger's DAG, set outside these steps; the first step is the single 
+      sqs receive.
+    - The bucket partner-drop-bucket is fixed in the requirement and no bucket parameter exists, so it is written 
+      literally in the filter.
+    - Package name is carried in the variable package_name, set from {event_key_stem}, which s3_records already 
+      provides.
+    - The glob incoming/**/*.zip matches .zip files at any depth under incoming/, including directly in incoming/.
+    - SQS defaults are kept (max 100 messages, 1800 s visibility, unmatched messages deleted), so test events and 
+      filtered-out messages are deleted.
+    - No dedupe step, as the requirement does not ask for it.
+  ambiguities: []
+  step_tests: {}
+planned_by:
+  task: plan_component
+  skill: planning-pipeline-components
+  skill_sha256: 1bc7dd2f04fb60afbbed488175c47d16e54e42c3a79da8f1ac975cedb3767078
+  prompt_sha256: d6f7486502113ffcbd039cc2167147ffdc9b53da958a0497535a78110df36470
+  schema_sha256: 6c2d314e688ab2eb8b56d8679ba6c23f31b68deb03072c6dc1e898a70263ef01
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+tests_written_by: {}
+simulation:
+  - example: zip_under_incoming
+    status: pass
+    detail: matches the expected output
+    output:
+      - keys:
+          - incoming/study1/data_20240301.zip
+        vars:
+          event_bucket: partner-drop-bucket
+          event_key: incoming/study1/data_20240301.zip
+          event_key_dir: incoming/study1
+          event_key_name: data_20240301.zip
+          event_key_stem: data_20240301
+          event_date: '2024-03-01'
+          event_date_nodash: '20240301'
+          event_ts_nodash: 20240301T100000
+          package_name: data_20240301
+  - example: s3_test_event_ignored
+    status: pass
+    detail: matches the expected output
+    output: []
+  - example: non_zip_ignored
+    status: pass
+    detail: matches the expected output
+    output: []
+  - example: url_encoded_key
+    status: pass
+    detail: matches the expected output
+    output:
+      - keys:
+          - incoming/study 1/my file.zip
+        vars:
+          event_bucket: partner-drop-bucket
+          event_key: incoming/study 1/my file.zip
+          event_key_dir: incoming/study 1
+          event_key_name: my file.zip
+          event_key_stem: my file
+          event_date: '2024-03-01'
+          event_date_nodash: '20240301'
+          event_ts_nodash: 20240301T100000
+          package_name: my file
+  - example: zip_outside_incoming_ignored
+    status: pass
+    detail: matches the expected output
+    output: []
+plan_digest: 5bdb2f73d0e42ae7bf1a70a8fb1a8f9ef4fbd85a8331ba331e9b672f0e064e9e
+plan_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-16T12:43:59+00:00'
+  digest: 5bdb2f73d0e42ae7bf1a70a8fb1a8f9ef4fbd85a8331ba331e9b672f0e064e9e

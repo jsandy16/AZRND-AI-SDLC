@@ -1,0 +1,55 @@
+{
+  "output": {
+    "ambiguities": [],
+    "assumptions": [
+      "No existing component fits unchanged: the 45-minute schedule trigger, the archive_bucket source (lists incoming/{ds}) and lake_raw destination (different prefix) all differ, so new ones are defined.",
+      "The 'date of the event' is the S3 event date ({event_date}, from eventTime).",
+      "The package name is the zip's file name without extension; the delivered key keeps the full path below incoming/, as in the owner's examples.",
+      "No server-side encryption was requested, so it is null; no _SUCCESS marker is written.",
+      "The destination needs only prefix settings, so no AI plan is required for it; the transformation is none."
+    ],
+    "destination": {
+      "config_json": "{\"type\": \"s3\", \"connection\": {\"bucket\": \"az-rd-lake-raw\", \"region\": \"eu-west-1\"}, \"credentials\": {\"provider\": \"none\"}, \"delivery\": {\"prefix\": \"landing/partner/{event_date}/\", \"if_exists\": \"skip_identical\", \"server_side_encryption\": null, \"write_success_marker\": false}, \"params\": {}}",
+      "examples_json": "[]",
+      "name": "partner_landing",
+      "requirement": "",
+      "reuse_existing": false
+    },
+    "has_transformation": false,
+    "package_name": "{event_key_stem}",
+    "pipeline_examples_json": "[{\"name\":\"zip_copied_with_event_date\",\"messages\":[{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\",\"eventTime\":\"2024-03-01T10:00:00.000Z\",\"s3\":{\"bucket\":{\"name\":\"partner-drop-bucket\"},\"object\":{\"key\":\"incoming/study1/data_20240301.zip\",\"size\":123}}}]}],\"conf\":null,\"listing\":[\"incoming/study1/data_20240301.zip:123\"],\"params\":{},\"expected_keys\":[\"landing/partner/2024-03-01/study1/data_20240301.zip\"],\"expect_error\":false},{\"name\":\"test_event_and_non_zip_ignored\",\"messages\":[{\"Service\":\"Amazon S3\",\"Event\":\"s3:TestEvent\",\"Bucket\":\"partner-drop-bucket\"},{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\",\"eventTime\":\"2024-03-01T10:00:00.000Z\",\"s3\":{\"bucket\":{\"name\":\"partner-drop-bucket\"},\"object\":{\"key\":\"incoming/study1/readme.txt\",\"size\":10}}}]}],\"conf\":null,\"listing\":[\"incoming/study1/readme.txt:10\"],\"params\":{},\"expected_keys\":[],\"expect_error\":false},{\"name\":\"url_encoded_key_decoded\",\"messages\":[{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\",\"eventTime\":\"2024-03-01T10:00:00.000Z\",\"s3\":{\"bucket\":{\"name\":\"partner-drop-bucket\"},\"object\":{\"key\":\"incoming/study+1/my+file.zip\",\"size\":50}}}]}],\"conf\":null,\"listing\":[\"incoming/study 1/my file.zip:50\"],\"params\":{},\"expected_keys\":[\"landing/partner/2024-03-01/study 1/my file.zip\"],\"expect_error\":false}]",
+    "source": {
+      "config_json": "{\"type\": \"s3\", \"connection\": {\"bucket\": \"partner-drop-bucket\", \"region\": \"eu-west-1\"}, \"credentials\": {\"provider\": \"none\"}, \"params\": {}}",
+      "examples_json": "[{\"name\":\"single_zip\",\"event\":{\"objects\":[{\"key\":\"incoming/study1/data_20240301.zip\",\"bucket\":\"partner-drop-bucket\"}],\"vars\":{}},\"listing\":[\"incoming/study1/data_20240301.zip:123\"],\"contents\":{},\"params\":{},\"expected_packages\":[[\"study1/data_20240301.zip\"]],\"expect_error\":false},{\"name\":\"decoded_key_with_space\",\"event\":{\"objects\":[{\"key\":\"incoming/study 1/my file.zip\",\"bucket\":\"partner-drop-bucket\"}],\"vars\":{}},\"listing\":[\"incoming/study 1/my file.zip:50\"],\"contents\":{},\"params\":{},\"expected_packages\":[[\"study 1/my file.zip\"]],\"expect_error\":false},{\"name\":\"top_level_zip\",\"event\":{\"objects\":[{\"key\":\"incoming/a.zip\",\"bucket\":\"partner-drop-bucket\"}],\"vars\":{}},\"listing\":[\"incoming/a.zip:5\"],\"contents\":{},\"params\":{},\"expected_packages\":[[\"a.zip\"]],\"expect_error\":false}]",
+      "name": "partner_drop_bucket",
+      "requirement": "Take exactly the object named by each event from the S3 bucket partner-drop-bucket (region eu-west-1). Object keys are under the root incoming/; the root is removed so package paths are the path below incoming/ (e.g. incoming/study1/data.zip becomes study1/data.zip). Each event gives one package containing that single zip.",
+      "reuse_existing": false
+    },
+    "summary": "A schedule runs every 5 minutes and reads S3 event notifications from the SQS queue partner-drop-events. S3 test events are dropped, and only .zip objects under incoming/ are kept, one event per object. The source takes exactly the object each event names, with incoming/ removed from its path, so each zip is its own package named after the zip without its extension. Nothing is transformed. The destination writes each zip unchanged to az-rd-lake-raw under landing/partner/<event date>/ plus the path below incoming/, and skips an identical existing object. The SQS message is deleted only after all its packages are delivered.",
+    "transformation": {
+      "config_json": "{\"params\": {}}",
+      "examples_json": "[]",
+      "name": "no_transformation",
+      "requirement": "",
+      "reuse_existing": false
+    },
+    "trigger": {
+      "config_json": "{\"schedule\": \"*/5 * * * *\", \"connection\": {\"region\": \"eu-west-1\"}, \"params\": {\"queue_url\": \"https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events\"}}",
+      "examples_json": "[{\"name\":\"zip_kept\",\"messages\":[{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\",\"eventTime\":\"2024-03-01T10:00:00.000Z\",\"s3\":{\"bucket\":{\"name\":\"partner-drop-bucket\"},\"object\":{\"key\":\"incoming/study1/data_20240301.zip\",\"size\":123}}}]}],\"conf\":null,\"params\":{},\"expected_events\":[{\"keys\":[\"incoming/study1/data_20240301.zip\"],\"vars\":{\"event_date\":\"2024-03-01\",\"event_key_stem\":\"data_20240301\"}}],\"expect_error\":false},{\"name\":\"test_event_dropped\",\"messages\":[{\"Service\":\"Amazon S3\",\"Event\":\"s3:TestEvent\",\"Bucket\":\"partner-drop-bucket\"}],\"conf\":null,\"params\":{},\"expected_events\":[],\"expect_error\":false},{\"name\":\"non_zip_dropped\",\"messages\":[{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\",\"eventTime\":\"2024-03-01T10:00:00.000Z\",\"s3\":{\"bucket\":{\"name\":\"partner-drop-bucket\"},\"object\":{\"key\":\"incoming/study1/readme.txt\",\"size\":10}}}]}],\"conf\":null,\"params\":{},\"expected_events\":[],\"expect_error\":false},{\"name\":\"url_encoded_key\",\"messages\":[{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"eventName\":\"ObjectCreated:Put\",\"eventTime\":\"2024-03-01T10:00:00.000Z\",\"s3\":{\"bucket\":{\"name\":\"partner-drop-bucket\"},\"object\":{\"key\":\"incoming/study+1/my+file.zip\",\"size\":50}}}]}],\"conf\":null,\"params\":{},\"expected_events\":[{\"keys\":[\"incoming/study 1/my file.zip\"],\"vars\":{\"event_key_stem\":\"my file\"}}],\"expect_error\":false}]",
+      "name": "partner_drop_sqs_5min",
+      "requirement": "Every 5 minutes read up to the allowed number of messages from the SQS queue https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events (region eu-west-1). Each message body is an S3 event notification (parse as JSON); turn its records into one event per object with the key URL-decoded. S3 test events (s3:TestEvent) are dropped. Keep only objects in bucket partner-drop-bucket whose key starts with incoming/ and ends with .zip; events left without objects are dropped. Set the package name from the object's file name without extension ({event_key_stem}). A message is deleted only after all its packages are delivered.",
+      "reuse_existing": false
+    }
+  },
+  "output_sha256": "e9d77e79f42d610cc501491dc858155accc033162e7cd780802e3c4040e0f147",
+  "provenance": {
+    "cost_usd": 0.1031715,
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "1",
+    "recorded_at": "2026-10-17T10:48:11Z",
+    "skill_sha256": "f75e3cd3693d33c81f2a67bbf552764ad3c87be7a6b5b524d93a44ebc27cbd5a",
+    "turns": 5
+  },
+  "skill": "decomposing-pipeline-requirements",
+  "task": "decompose_pipeline"
+}

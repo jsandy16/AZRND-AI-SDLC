@@ -1,0 +1,71 @@
+# sources/sas_incoming_bucket.lock.yaml — plan, step tests, simulation, code tests and approvals.
+# Written by `pkf plan/code/test/approve-…`; approvals are a person's decision. Do not edit by hand.
+lock_version: 2
+kind: source
+name: sas_incoming_bucket
+requirement_sha256: 37f62c5151deb2082ccc758a5a77637653899241b70b6d1bb3b3a659c5a9b474
+plan:
+  summary: Lists every object under incoming/ in the SAS S3 bucket at any depth, with paths relative to incoming/. It 
+    keeps only files inside a study folder whose names have a "." extension. Folder markers, files directly under 
+    incoming/ and extension-less files are dropped silently. Each remaining file becomes its own package.
+  steps:
+    - id: list_incoming
+      op: list
+      title: List all objects under incoming/
+      params:
+        root: incoming/
+    - id: keep_study_files_with_extension
+      op: select
+      title: Skip folder markers, root-level files and files without an extension
+      params:
+        regex: ^[^/]+/(?:[^/]+/)*[^/]+\.[^/]+$
+    - id: one_package_per_file
+      op: split
+      title: Make each file its own package
+      params:
+        by: regex
+        regex: ^(.+)$
+  assumptions:
+    - The regex requires at least one folder level (the study folder) before the file name, so files directly under 
+      incoming/ are dropped.
+    - A file name has an extension when its last path segment contains a '.' with characters on both sides; names like 
+      '.hidden' or 'name.' count as having no extension.
+    - Folder markers end in '/', so they never match the regex.
+    - The study ID is the first path segment and is kept as written, with no changes to case or hyphens.
+    - The bucket and region (eu-north-1) come from the fixed component settings, so the plan only sets the incoming/ 
+      prefix.
+    - The split regex matches the whole path, so every file gets a unique key and its own package.
+  ambiguities: []
+  step_tests: {}
+planned_by:
+  task: plan_component
+  skill: planning-pipeline-components
+  skill_sha256: 7690c7e461337894d9a974196cfce1179f75f9cfb20f43d663bc098712022fc0
+  prompt_sha256: 11c1d754b0136f5b848f807eff15026da262763e16a902d4c0bfcfef650e32ed
+  schema_sha256: 6c2d314e688ab2eb8b56d8679ba6c23f31b68deb03072c6dc1e898a70263ef01
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+tests_written_by: {}
+simulation:
+  - example: one_package_per_file
+    status: pass
+    detail: matches the expected output
+    output:
+      -   - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat
+      -   - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/b.sas7bdat
+  - example: skips_markers_root_files_and_no_extension
+    status: pass
+    detail: matches the expected output
+    output:
+      -   - 04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat
+  - example: study_id_case_and_hyphen_kept
+    status: pass
+    detail: matches the expected output
+    output:
+      -   - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+plan_digest: 21d8a791015d1779c9c98d3bf660d8b71d09a2e89eb70e2692ea3bcc2dcde12a
+plan_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-17T10:41:34+00:00'
+  digest: 21d8a791015d1779c9c98d3bf660d8b71d09a2e89eb70e2692ea3bcc2dcde12a

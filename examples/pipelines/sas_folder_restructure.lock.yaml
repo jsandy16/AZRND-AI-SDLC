@@ -1,0 +1,254 @@
+# pipelines/sas_folder_restructure.lock.yaml — the AI's split of the pipeline requirement and its approval.
+# Written by `pkf plan pipeline` / `pkf approve-plan pipeline`. Do not edit by hand.
+lock_version: 1
+pipeline: sas_folder_restructure
+requirement_sha256: dfc03545308e04fb7ec66b279aea6c5c3817bed889a93bf2fbe7b2c2ab537a58
+split:
+  summary: "A cron schedule (every 45 minutes) starts a run with no events. The source lists every object under incoming/
+    in the SAS S3 bucket (eu-north-1). It skips folder markers, files directly under incoming/ and files with no extension.
+    Each remaining file becomes its own package, with its path relative to incoming/. There is no transformation, so files
+    are never opened or changed. The destination uses the same bucket and applies the seven routing rules to the folder path.
+    Any file that matches no rule or more than one rule, or whose target can't be worked out, goes to error/{path}. Delivery
+    is a move: server-side copy, confirm the target exists, then delete the source. After a successful move the target's tags
+    are replaced with the single tag ADDITIONAL_TAG. The run fails only if a copy, check or delete fails."
+  components:
+    trigger:
+      name: sas_schedule_45min
+      reuse: false
+      spec:
+        api_version: pkf/v1
+        kind: trigger
+        name: sas_schedule_45min
+        description: from the trigger part of the pipeline requirement
+        schedule: '*/45 * * * *'
+        connection:
+          region: eu-north-1
+        params: {}
+    source:
+      name: sas_incoming_bucket
+      reuse: false
+      spec:
+        api_version: pkf/v1
+        kind: source
+        name: sas_incoming_bucket
+        description: from the source part of the pipeline requirement
+        type: s3
+        connection:
+          bucket: <REQUIRED>
+          region: eu-north-1
+        credentials:
+          provider: none
+        params: {}
+        requirement: "The source is the environment's SAS S3 bucket in region eu-north-1. List every object under the prefix
+          incoming/ at any depth; package paths are relative to incoming/ (the incoming/ prefix is removed). Skip silently
+          (do not move, do not report) these: folder markers (keys ending in \"/\"), files directly under incoming/ with no
+          study folder (e.g. incoming/readme.txt), and files whose name has no \".\" extension. Each remaining file is its
+          own package (one package per file), so a problem with one file does not stop the others. The study ID is the first
+          folder after incoming/, used exactly as written (case and hyphens kept).\n"
+        examples:
+          - name: one_package_per_file
+            event:
+            listing:
+              - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat:10
+              - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/b.sas7bdat:20
+            contents: {}
+            params: {}
+            expected_packages:
+              -   - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat
+              -   - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/b.sas7bdat
+            expect_error: false
+          - name: skips_markers_root_files_and_no_extension
+            event:
+            listing:
+              - incoming/:0
+              - incoming/04-3077/:0
+              - incoming/readme.txt:10
+              - incoming/04-3077/root/data_reuse/d525/04-3077/shared/adam/prod/data/no_extension:10
+              - incoming/04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat:10
+            contents: {}
+            params: {}
+            expected_packages:
+              -   - 04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat
+            expect_error: false
+          - name: study_id_case_and_hyphen_kept
+            event:
+            listing:
+              - incoming/ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf:10
+            contents: {}
+            params: {}
+            expected_packages:
+              -   - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+            expect_error: false
+    destination:
+      name: sas_restructure_move
+      reuse: false
+      spec:
+        api_version: pkf/v1
+        kind: destination
+        name: sas_restructure_move
+        description: from the destination part of the pipeline requirement
+        type: s3
+        connection:
+          bucket: <REQUIRED>
+          region: eu-north-1
+        credentials:
+          provider: none
+        delivery:
+          if_exists: overwrite
+          server_side_encryption:
+          write_success_marker: false
+        params: {}
+        requirement: "Destination is the same S3 bucket as the source (region eu-north-1). Each package is one file whose
+          path is relative to incoming/ ({study}/...). The study is the first folder of that path, used exactly as written.
+          Decide the target using the folder path only (the path without the file name); the file name is always kept. Data
+          format from the folder path: adam if it contains /adam/, otherwise sdtm if it contains /sdtm/, otherwise raw if
+          it contains raw/ (so restricted_raw/ also counts as raw). For anonymised folders the data format comes from _adam_,
+          _sdtm_, _raw_ or _restricted_raw_ (= raw). \"Last folder\" = the folder that directly contains the file. Check every
+          rule below. Exactly one rule must match.\n1. CDAP: path contains /data_reuse/ and /cdap_ and a data format. If it
+          contains /cdap_csr -> {study}/extended_primary_use/primary/{format}/{file}. Else if the last folder contains _ia
+          -> take the third \"_\" part of the last folder (cdap_20210617_ia300 -> ia300) and write it as ia_ + the rest (ia_300)
+          -> {study}/extended_primary_use/interim/{format}/ia_300/{file}; fewer than 3 parts -> error. Else -> second \"_\"\
+          \ part of the last folder (cdap_20210617 -> 20210617) -> {study}/extended_primary_use/other/{format}/20210617/{file};
+          fewer than 2 parts -> error.\n2. IDAP: path contains /data_reuse/ and /idap and a data format -> {study}/internal_reuse/{format}/{last
+          folder}/{file}.\n3. MED: path contains /data_reuse/ and /med and a data format -> {study}/external_reuse/{format}/{last
+          folder}/{file}.\n4. ANON: path contains _anon_ and an underscore data format. If it contains _anon_csr -> {study}/anonymised/primary/{format}/{file}.
+          Else take the last \"_\" part of the last folder: if it starts with lowercase ia, case-sensitive (ia500) -> {study}/anonymised/interim/{format}/ia_500/{file};
+          otherwise (20220120) -> {study}/anonymised/other/{format}/20220120/{file}.\n5. CDAR: path contains /cdar/ and a
+          data format. Reporting level = the folder right after the folder named \"ar\" (case-insensitive, compared in lowercase).
+          No \"ar\" folder, or the reporting level is adam, sdtm or raw -> error. csr -> {study}/primary/complete/{format}/{file}.
+          Starts with ia -> remove \"ia\" and any leading \"_\", then add \"ia_\" (ia1 -> ia_1, ia_psc -> ia_psc) -> {study}/primary/interim/{format}/{ia_x}/{file}.
+          Anything else (bdr200) -> {study}/primary/other/{format}/bdr200/{file}.\n6. OTHERS: path contains /data_reuse/ and
+          a data format, and none of /med, /cdap, /idap, /anon, _anon_ -> {study}/other/{format}/{last folder}/{file}.\n7.
+          DEFAULT (pass-through): path has none of /data_reuse/, _anon_, /cdar/ -> the same path (incoming/ removed).\nNo
+          rule matches, more than one rule matches, or the target cannot be worked out -> move the file to error/{path without
+          incoming/}. Never drop a file.\n\nDELIVERY BEHAVIOUR: Move, not copy: copy server-side (files can be larger than
+          5 GiB), confirm the target exists, then delete the source from incoming/. If the copy or the check fails, leave
+          the source in incoming/ so the next run retries it; that file fails. An existing object at the target is overwritten.
+          After a successful move, replace all tags on the target with exactly one tag: ADDITIONAL_TAG = the original path
+          without incoming/. A tagging failure is only a warning (the file still counts as moved). Files moved to error/ get
+          no tag change. Report one line per file: source, target, rule or error reason. The run fails only if a copy, check
+          or delete failed. Moving files to error/ does not fail the run.\n"
+        examples:
+          - name: cdar_csr
+            files:
+              - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat
+            vars:
+              package: sas_restructure
+            params: {}
+            expected_keys:
+              - d0000c00004/primary/complete/adam/a.sas7bdat
+            expect_error: false
+          - name: cdap_interim
+            files:
+              - d0000c00004/data_reuse/d000/d0000c00004/ar/shared/raw/dev/data/cdap_20210617_ia300/b.sas7bdat
+            vars:
+              package: sas_restructure
+            params: {}
+            expected_keys:
+              - d0000c00004/extended_primary_use/interim/raw/ia_300/b.sas7bdat
+            expect_error: false
+          - name: med_rule
+            files:
+              - 04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat
+            vars:
+              package: sas_restructure
+            params: {}
+            expected_keys:
+              - 04-3077/external_reuse/adam/data/adae.sas7bdat
+            expect_error: false
+          - name: anon_other
+            files:
+              - d0000c00004/d0000c00004_raw_anon_20220120/c.sas7bdat
+            vars:
+              package: sas_restructure
+            params: {}
+            expected_keys:
+              - d0000c00004/anonymised/other/raw/20220120/c.sas7bdat
+            expect_error: false
+          - name: default_passthrough
+            files:
+              - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+            vars:
+              package: sas_restructure
+            params: {}
+            expected_keys:
+              - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+            expect_error: false
+          - name: cdar_reporting_level_is_format_goes_to_error
+            files:
+              - 04-3077/root/cdar/d168/04-3077/adam/prod/data/adae.sas7bdat
+            vars:
+              package: sas_restructure
+            params: {}
+            expected_keys:
+              - error/04-3077/root/cdar/d168/04-3077/adam/prod/data/adae.sas7bdat
+            expect_error: false
+  errors: []
+  package_name: '{source}_{ds_nodash}'
+  pipeline_examples:
+    - name: cdar_routes
+      messages: []
+      conf:
+      listing:
+        - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat:10
+        - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/ia100/sdtm/dev/data/data_area/b.sas7bdat:10
+        - incoming/d0000c00004/root/cdar/d000/d0000c00004/ar/bdr200/raw/dev/data/data_area/c.sas7bdat:10
+      params: {}
+      expected_keys:
+        - d0000c00004/primary/complete/adam/a.sas7bdat
+        - d0000c00004/primary/interim/sdtm/ia_100/b.sas7bdat
+        - d0000c00004/primary/other/raw/bdr200/c.sas7bdat
+      expect_error: false
+    - name: default_errors_and_skips
+      messages: []
+      conf:
+      listing:
+        - incoming/ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf:10
+        - incoming/04-3077/root/data_reuse/d525/04-3077/shared/prod/data/adae.sas7bdat:10
+        - incoming/04-3077/root/cdar/d168/04-3077/adam/prod/data/adae.sas7bdat:10
+        - incoming/readme.txt:10
+        - incoming/04-3077/root/data_reuse/d525/04-3077/shared/adam/prod/data/no_extension:10
+      params: {}
+      expected_keys:
+        - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+        - error/04-3077/root/data_reuse/d525/04-3077/shared/prod/data/adae.sas7bdat
+        - error/04-3077/root/cdar/d168/04-3077/adam/prod/data/adae.sas7bdat
+      expect_error: false
+  assumptions:
+    - 'No existing component fits: the existing trigger is SQS, and the existing sources and destinations have other buckets,
+      regions or purposes. All four parts are new.'
+    - The bucket name is not given, so it is "<REQUIRED>" in both the source and the destination.
+    - Each file is its own package, so package_name uses the generic {source}_{ds_nodash}. Real object keys are decided 
+      by the destination's custom delivery, not by the package name.
+    - The destination's if_exists is set to "overwrite" because the requirement says an existing target object is 
+      overwritten. Delivery itself is a custom_delivery step (move, check, delete, tag).
+    - Package paths are relative to incoming/, so the destination rules see {study}/... paths. The error/ prefix is 
+      added to that same relative path.
+    - Files in the destination are only moved within the bucket, so no encryption or success marker is configured.
+  ambiguities: []
+  to_fill_in:
+    - destination.connection.bucket
+    - source.connection.bucket
+owned:
+  -   - connection
+      - sas_folder_restructure_connection
+  -   - destination
+      - sas_restructure_move
+  -   - source
+      - sas_incoming_bucket
+  -   - trigger
+      - sas_schedule_45min
+split_by:
+  task: decompose_pipeline
+  skill: decomposing-pipeline-requirements
+  skill_sha256: f75e3cd3693d33c81f2a67bbf552764ad3c87be7a6b5b524d93a44ebc27cbd5a
+  prompt_sha256: 7ea92071cd3d76e49dda4289892ccc2af678664ff81a1e571e640b0321d33d51
+  schema_sha256: 8f8f0c94338e8a18c5595e6fc893838a63995bcdbc67c49f9f9b19853077de24
+  model: claude-sonnet-5-5
+  prompt_version: '1'
+split_digest: 9c940f31980fc05e08064ac7c5db5e7d3cd2388acde5583c62bb1773d0e0ad0e
+split_approval:
+  by: '@claude-demo'
+  identity: noreply@anthropic.com
+  at: '2026-10-17T10:41:00+00:00'
+  digest: 9c940f31980fc05e08064ac7c5db5e7d3cd2388acde5583c62bb1773d0e0ad0e

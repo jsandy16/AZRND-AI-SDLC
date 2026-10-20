@@ -1,0 +1,99 @@
+# destination `sas_restructure_move`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every dev-dpl-dstore-sas-eu-north-1-992382551516.
+api_version: pkf/v1
+kind: destination
+name: sas_restructure_move
+description: from the destination part of the pipeline requirement
+type: s3
+connection:
+  bucket: dev-dpl-dstore-sas-eu-north-1-992382551516
+  region: eu-north-1
+credentials:
+  provider: none
+delivery:
+  if_exists: overwrite
+  server_side_encryption:
+  write_success_marker: false
+params: {}
+requirement: "Destination is the same S3 bucket as the source (region eu-north-1). Each package is one file whose path is
+  relative to incoming/ ({study}/...). The study is the first folder of that path, used exactly as written. Decide the target
+  using the folder path only (the path without the file name); the file name is always kept. Data format from the folder path:
+  adam if it contains /adam/, otherwise sdtm if it contains /sdtm/, otherwise raw if it contains raw/ (so restricted_raw/
+  also counts as raw). For anonymised folders the data format comes from _adam_, _sdtm_, _raw_ or _restricted_raw_ (= raw).
+  \"Last folder\" = the folder that directly contains the file. Check every rule below. Exactly one rule must match.\n1. CDAP:
+  path contains /data_reuse/ and /cdap_ and a data format. If it contains /cdap_csr -> {study}/extended_primary_use/primary/{format}/{file}.
+  Else if the last folder contains _ia -> take the third \"_\" part of the last folder (cdap_20210617_ia300 -> ia300) and
+  write it as ia_ + the rest (ia_300) -> {study}/extended_primary_use/interim/{format}/ia_300/{file}; fewer than 3 parts ->
+  error. Else -> second \"_\" part of the last folder (cdap_20210617 -> 20210617) -> {study}/extended_primary_use/other/{format}/20210617/{file};
+  fewer than 2 parts -> error.\n2. IDAP: path contains /data_reuse/ and /idap and a data format -> {study}/internal_reuse/{format}/{last
+  folder}/{file}.\n3. MED: path contains /data_reuse/ and /med and a data format -> {study}/external_reuse/{format}/{last
+  folder}/{file}.\n4. ANON: path contains _anon_ and an underscore data format. If it contains _anon_csr -> {study}/anonymised/primary/{format}/{file}.
+  Else take the last \"_\" part of the last folder: if it starts with lowercase ia, case-sensitive (ia500) -> {study}/anonymised/interim/{format}/ia_500/{file};
+  otherwise (20220120) -> {study}/anonymised/other/{format}/20220120/{file}.\n5. CDAR: path contains /cdar/ and a data format.
+  Reporting level = the folder right after the folder named \"ar\" (case-insensitive, compared in lowercase). No \"ar\" folder,
+  or the reporting level is adam, sdtm or raw -> error. csr -> {study}/primary/complete/{format}/{file}. Starts with ia ->
+  remove \"ia\" and any leading \"_\", then add \"ia_\" (ia1 -> ia_1, ia_psc -> ia_psc) -> {study}/primary/interim/{format}/{ia_x}/{file}.
+  Anything else (bdr200) -> {study}/primary/other/{format}/bdr200/{file}.\n6. OTHERS: path contains /data_reuse/ and a data
+  format, and none of /med, /cdap, /idap, /anon, _anon_ -> {study}/other/{format}/{last folder}/{file}.\n7. DEFAULT (pass-through):
+  path has none of /data_reuse/, _anon_, /cdar/ -> the same path (incoming/ removed).\nNo rule matches, more than one rule
+  matches, or the target cannot be worked out -> move the file to error/{path without incoming/}. Never drop a file.\n\nDELIVERY
+  BEHAVIOUR: Move, not copy: copy server-side (files can be larger than 5 GiB), confirm the target exists, then delete the
+  source from incoming/. If the copy or the check fails, leave the source in incoming/ so the next run retries it; that file
+  fails. An existing object at the target is overwritten. After a successful move, replace all tags on the target with exactly
+  one tag: ADDITIONAL_TAG = the original path without incoming/. A tagging failure is only a warning (the file still counts
+  as moved). Files moved to error/ get no tag change. Report one line per file: source, target, rule or error reason. The
+  run fails only if a copy, check or delete failed. Moving files to error/ does not fail the run.\n"
+examples:
+  - name: cdar_csr
+    files:
+      - d0000c00004/root/cdar/d000/d0000c00004/ar/csr/adam/dev/data/data_area/a.sas7bdat
+    vars:
+      package: sas_restructure
+    params: {}
+    expected_keys:
+      - d0000c00004/primary/complete/adam/a.sas7bdat
+    expect_error: false
+  - name: cdap_interim
+    files:
+      - d0000c00004/data_reuse/d000/d0000c00004/ar/shared/raw/dev/data/cdap_20210617_ia300/b.sas7bdat
+    vars:
+      package: sas_restructure
+    params: {}
+    expected_keys:
+      - d0000c00004/extended_primary_use/interim/raw/ia_300/b.sas7bdat
+    expect_error: false
+  - name: med_rule
+    files:
+      - 04-3077/root/data_reuse/d525/04-3077/med/adam/prod/data/adae.sas7bdat
+    vars:
+      package: sas_restructure
+    params: {}
+    expected_keys:
+      - 04-3077/external_reuse/adam/data/adae.sas7bdat
+    expect_error: false
+  - name: anon_other
+    files:
+      - d0000c00004/d0000c00004_raw_anon_20220120/c.sas7bdat
+    vars:
+      package: sas_restructure
+    params: {}
+    expected_keys:
+      - d0000c00004/anonymised/other/raw/20220120/c.sas7bdat
+    expect_error: false
+  - name: default_passthrough
+    files:
+      - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+    vars:
+      package: sas_restructure
+    params: {}
+    expected_keys:
+      - ABCD-0000-0000/Export_Inventory_usr00001_2024-05-29_08-39-32.pdf
+    expect_error: false
+  - name: cdar_reporting_level_is_format_goes_to_error
+    files:
+      - 04-3077/root/cdar/d168/04-3077/adam/prod/data/adae.sas7bdat
+    vars:
+      package: sas_restructure
+    params: {}
+    expected_keys:
+      - error/04-3077/root/cdar/d168/04-3077/adam/prod/data/adae.sas7bdat
+    expect_error: false

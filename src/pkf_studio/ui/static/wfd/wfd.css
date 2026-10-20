@@ -1,0 +1,298 @@
+/* pkf Studio — Workflow Developer component styles (tree + console). Theme colours come from the Streamlit render
+   event and are written to custom properties on <html> by wfd.js; everything else derives from them with color-mix. */
+
+:root {
+  --bg: #ffffff;
+  --bg2: #f0f2f6;
+  --text: #31333f;
+  --primary: #ff4b4b;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --muted: color-mix(in srgb, var(--text) 55%, var(--bg));
+  --faint: color-mix(in srgb, var(--text) 32%, var(--bg));
+  --border: color-mix(in srgb, var(--text) 12%, var(--bg));
+  --border-strong: color-mix(in srgb, var(--text) 20%, var(--bg));
+  --hover: color-mix(in srgb, var(--text) 4%, var(--bg));
+  --card: var(--bg);
+  --track: color-mix(in srgb, var(--text) 9%, var(--bg));
+
+  --c-grey: #9aa1ad;
+  --c-run: #4ade80;
+  --c-run-deep: #16a34a;
+  --c-wait: #f59e0b;
+  --c-done: #15803d;
+  --c-fail: #ef4444;
+  --c-info: #6b7280;
+  --c-agent: #8b5cf6;
+  --c-tool: #3b82f6;
+  --c-user: #14b8a6;
+
+  --radius: 8px;
+  --dot: 12px;
+}
+
+:root[data-base="dark"] {
+  --muted: color-mix(in srgb, var(--text) 60%, var(--bg));
+  --faint: color-mix(in srgb, var(--text) 38%, var(--bg));
+  --border: color-mix(in srgb, var(--text) 14%, var(--bg));
+  --border-strong: color-mix(in srgb, var(--text) 24%, var(--bg));
+  --hover: color-mix(in srgb, var(--text) 6%, var(--bg));
+  --card: color-mix(in srgb, var(--bg2) 55%, var(--bg));
+  --track: color-mix(in srgb, var(--text) 12%, var(--bg));
+  --c-grey: #6b7280;
+  --c-done: #22c55e;
+  --c-run-deep: #22c55e;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: transparent; }
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+.wfd { padding: 2px 1px 4px; }
+button { font: inherit; color: inherit; }
+
+/* ------------------------------------------------------------------------------------------------ summary strip */
+.summary {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 10px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+}
+.summary .pct { font-size: 20px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.summary .pct small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+.summary .bar { flex: 1 1 140px; height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; display: flex; }
+.summary .bar i { display: block; height: 100%; transition: width .5s ease; }
+.summary .bar .seg-done { background: var(--c-done); }
+.summary .bar .seg-running { background: var(--c-run); }
+.summary .bar .seg-waiting { background: var(--c-wait); }
+.summary .bar .seg-failed { background: var(--c-fail); }
+.summary .counts { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.summary .counts span { display: inline-flex; align-items: center; gap: 5px; }
+.summary .counts b { color: var(--text); font-weight: 600; }
+.summary .counts .k { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.summary .counts .k.done { background: var(--c-done); }
+.summary .counts .k.running { background: var(--c-run); }
+.summary .counts .k.waiting { background: var(--c-wait); }
+.summary .counts .k.failed { background: var(--c-fail); }
+.summary .counts .k.not_started { background: var(--c-grey); opacity: .6; }
+.summary .message {
+  flex-basis: 100%; color: var(--muted); font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.summary .message:empty { display: none; }
+.summary .runstate {
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--muted);
+}
+.summary .runstate.running { color: var(--c-run-deep); border-color: color-mix(in srgb, var(--c-run) 50%, transparent); }
+.summary .runstate.waiting_input, .summary .runstate.waiting_gate, .summary .runstate.waiting_user { color: var(--c-wait); border-color: color-mix(in srgb, var(--c-wait) 50%, transparent); }
+.summary .runstate.failed { color: var(--c-fail); border-color: color-mix(in srgb, var(--c-fail) 50%, transparent); }
+.summary .runstate.done { color: var(--c-done); border-color: color-mix(in srgb, var(--c-done) 50%, transparent); }
+
+/* ------------------------------------------------------------------------------------------------ stage cards */
+.stage {
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--card);
+  margin-bottom: 8px; overflow: hidden;
+  transition: border-color .25s ease, box-shadow .25s ease;
+}
+.stage.running { border-color: color-mix(in srgb, var(--c-run) 45%, var(--border)); }
+.stage.waiting { border-color: color-mix(in srgb, var(--c-wait) 50%, var(--border)); }
+.stage.failed { border-color: color-mix(in srgb, var(--c-fail) 45%, var(--border)); }
+.stage.not_started .stage-title { color: var(--muted); }
+
+.stage-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px 9px 12px; border: 0; background: transparent; text-align: left; cursor: pointer;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.stage-head:hover { background: var(--hover); }
+.stage-head:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.stage-title { font-weight: 600; font-size: 13px; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage-title .sid { color: var(--muted); font-weight: 500; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.stage-progress { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.stage-badge {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px; flex: 0 0 auto;
+}
+.stage-badge.running { color: var(--c-run-deep); background: color-mix(in srgb, var(--c-run) 18%, transparent); }
+.stage-badge.waiting { color: color-mix(in srgb, var(--c-wait) 85%, var(--text)); background: color-mix(in srgb, var(--c-wait) 18%, transparent); }
+.stage-badge.failed { color: var(--c-fail); background: color-mix(in srgb, var(--c-fail) 14%, transparent); }
+.stage-badge.done { color: var(--c-done); background: color-mix(in srgb, var(--c-done) 14%, transparent); }
+.stage-badge.not_started, .stage-badge.skipped { display: none; }
+.chev { flex: 0 0 auto; width: 16px; height: 16px; color: var(--faint); transition: transform .25s ease; }
+.stage.open .chev { transform: rotate(90deg); }
+
+.stage-bar { height: 2px; background: var(--track); display: flex; }
+.stage-bar i { display: block; height: 100%; transition: width .5s ease; }
+.stage-bar .seg-done { background: var(--c-done); }
+.stage-bar .seg-running { background: var(--c-run); }
+.stage-bar .seg-waiting { background: var(--c-wait); }
+.stage-bar .seg-failed { background: var(--c-fail); }
+
+/* collapsible body: grid-rows trick gives a smooth height transition without measuring */
+.stage-body {
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  transition: grid-template-rows .28s ease, opacity .22s ease;
+}
+.stage.open .stage-body { grid-template-rows: 1fr; opacity: 1; }
+.stage-body > .steps { overflow: hidden; min-height: 0; }
+.steps { margin: 0; padding: 0; list-style: none; }
+.stage.open .steps { padding: 4px 0 6px; }
+
+/* ------------------------------------------------------------------------------------------------ step rows */
+.step {
+  display: grid; grid-template-columns: 24px 36px minmax(0, 1fr) auto; align-items: center; column-gap: 8px;
+  padding: 5px 12px 5px 14px; margin: 0 6px; border-radius: 6px; cursor: pointer; position: relative;
+  transition: background .18s ease;
+}
+.step:hover { background: var(--hover); }
+.step:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.step .id { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.step .main { min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.step .title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.step .detail { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 0; }
+.step .detail:empty { display: none; }
+.step .time { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.step .kind { font-size: 10px; color: var(--faint); margin-left: 6px; letter-spacing: .03em; text-transform: uppercase; }
+.step.optional .title::after { content: " · optional"; color: var(--faint); font-weight: 400; font-size: 11px; }
+
+.step.not_started { opacity: .62; }
+.step.not_started .title { font-weight: 450; }
+.step.skipped .title { text-decoration: line-through; text-decoration-color: var(--faint); color: var(--muted); }
+.step.running { background: color-mix(in srgb, var(--c-run) 9%, transparent); }
+.step.running .title { color: color-mix(in srgb, var(--c-run-deep) 80%, var(--text)); }
+.step.waiting { background: color-mix(in srgb, var(--c-wait) 9%, transparent); }
+.step.failed .title { color: var(--c-fail); }
+.step.failed .detail { color: color-mix(in srgb, var(--c-fail) 70%, var(--text)); }
+.step.selected { box-shadow: inset 0 0 0 1.5px var(--primary); background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.step.selected.running { background: color-mix(in srgb, var(--c-run) 12%, color-mix(in srgb, var(--primary) 5%, transparent)); }
+
+/* ------------------------------------------------------------------------------------------------ status dots */
+.dot {
+  width: var(--dot); height: var(--dot); border-radius: 50%; position: relative; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--c-grey); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-grey) 40%, transparent);
+  transition: background .3s ease, box-shadow .3s ease;
+}
+.dot svg { width: 8px; height: 8px; display: none; stroke: #fff; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.dot.not_started { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c-grey); }
+.dot.skipped { background: color-mix(in srgb, var(--c-grey) 55%, var(--bg)); box-shadow: none; }
+.dot.skipped .i-dash { display: block; stroke: var(--bg); }
+.dot.done { background: var(--c-done); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-done) 35%, transparent); }
+.dot.done .i-check { display: block; }
+.dot.failed { background: var(--c-fail); box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-fail) 35%, transparent); }
+.dot.failed .i-x { display: block; }
+.dot.running { background: var(--c-run); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-run) 28%, transparent); animation: pulse-run 1.6s ease-in-out infinite; }
+.dot.waiting { background: var(--c-wait); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-wait) 28%, transparent); animation: pulse-wait 1.4s ease-in-out infinite; }
+.dot.running::after, .dot.waiting::after {
+  content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0;
+  animation: ring 1.6s ease-out infinite;
+}
+.dot.running { color: var(--c-run); }
+.dot.waiting { color: var(--c-wait); animation-duration: 1.4s; }
+.dot.waiting::after { animation-duration: 1.4s; }
+.stage-head .dot { width: 13px; height: 13px; }
+
+@keyframes pulse-run {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-run) 30%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--c-run) 10%, transparent); }
+}
+@keyframes pulse-wait {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-wait) 30%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--c-wait) 10%, transparent); }
+}
+@keyframes ring {
+  0% { transform: scale(.8); opacity: .8; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.running, .dot.waiting { animation: none !important; }
+  .dot.running::after, .dot.waiting::after { display: none; }
+  .stage-body, .chev, .summary .bar i, .stage-bar i, .step { transition: none !important; }
+}
+
+.empty { padding: 28px 14px; text-align: center; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+
+/* ------------------------------------------------------------------------------------------------ console */
+.console {
+  display: flex; flex-direction: column; height: 100%;
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  background: var(--con-bg); color: var(--con-text);
+  --con-bg: #0f1117; --con-text: #d7dbe3; --con-muted: #717a8c; --con-border: #232734; --con-hover: #181b25;
+}
+:root[data-base="dark"] .console { --con-bg: color-mix(in srgb, var(--bg) 60%, #000); --con-border: color-mix(in srgb, var(--text) 14%, var(--bg)); }
+.wfd.console-view { height: 100vh; padding: 0; }
+.console-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 10px; border-bottom: 1px solid var(--con-border); background: color-mix(in srgb, var(--con-bg) 70%, #fff 0%);
+  font-family: var(--font); font-size: 12px; flex: 0 0 auto;
+}
+.console-head .ctitle { font-weight: 600; color: #e8ebf2; display: inline-flex; align-items: center; gap: 7px; }
+.console-head .ctitle::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c-run); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-run) 25%, transparent); }
+.console-head .ccount { color: var(--con-muted); font-variant-numeric: tabular-nums; }
+.console-head .spacer { flex: 1 1 auto; }
+.chips { display: inline-flex; gap: 2px; padding: 2px; border-radius: 7px; background: #171a23; border: 1px solid var(--con-border); }
+.chip {
+  border: 0; background: transparent; color: var(--con-muted); padding: 2px 8px; border-radius: 5px; cursor: pointer; font-size: 11.5px;
+  transition: background .15s ease, color .15s ease;
+}
+.chip:hover { color: #e8ebf2; }
+.chip.on { background: #2a2f3d; color: #fff; }
+.chip.on[data-level="error"] { color: #fca5a5; }
+.chip.on[data-level="warn"] { color: #fcd34d; }
+.chip.on[data-level="agent"] { color: #c4b5fd; }
+.chip.on[data-level="tool"] { color: #93c5fd; }
+.cbtn {
+  border: 1px solid var(--con-border); background: #171a23; color: #cfd4de; padding: 3px 9px; border-radius: 6px; cursor: pointer; font-size: 11.5px;
+  display: inline-flex; align-items: center; gap: 5px; transition: background .15s ease, border-color .15s ease;
+}
+.cbtn:hover { background: #20242f; }
+.cbtn.on { border-color: color-mix(in srgb, var(--c-run) 60%, transparent); color: #bbf7d0; }
+.cbtn svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.console-body { flex: 1 1 auto; overflow: auto; position: relative; padding: 6px 0 8px; font-family: var(--mono); font-size: 12px; line-height: 1.5; scrollbar-width: thin; scrollbar-color: #2c3140 transparent; }
+.console-body::-webkit-scrollbar { width: 8px; }
+.console-body::-webkit-scrollbar-thumb { background: #2c3140; border-radius: 4px; }
+.line { display: grid; grid-template-columns: 62px 64px minmax(0, 1fr); column-gap: 10px; padding: 1px 12px 1px 10px; align-items: baseline; }
+.line:hover { background: var(--con-hover); }
+.line .ts { color: var(--con-muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+.line .ln { display: none; color: #4b5366; text-align: right; font-variant-numeric: tabular-nums; font-size: 11px; user-select: none; }
+.numbered .line { grid-template-columns: 40px 62px 64px minmax(0, 1fr); }
+.numbered .line .ln { display: block; }
+.line .src {
+  font-family: var(--font); font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; text-align: center;
+  padding: 1px 0; border-radius: 4px; align-self: center; line-height: 1.5;
+}
+.line .src.job { color: #93c5fd; background: rgba(59,130,246,.14); }
+.line .src.flow { color: #a7f3d0; background: rgba(16,185,129,.14); }
+.line .src.assistant { color: #d8b4fe; background: rgba(139,92,246,.16); }
+.line .src.other { color: #cbd5e1; background: rgba(148,163,184,.14); }
+.line .txt { white-space: pre-wrap; word-break: break-word; color: var(--con-text); }
+.line.error .txt { color: #fca5a5; }
+.line.warn .txt { color: #fcd34d; }
+.line.ok .txt { color: #86efac; }
+.line.agent .txt { color: #c4b5fd; }
+.line.tool .txt { color: #93c5fd; }
+.line.user .txt { color: #5eead4; }
+.line.hidden { display: none; }
+.console-empty { padding: 24px 12px; color: var(--con-muted); text-align: center; font-family: var(--font); }
+
+.newpill {
+  position: absolute; left: 50%; bottom: 10px; transform: translate(-50%, 18px); opacity: 0; pointer-events: none;
+  background: var(--primary); color: #fff; font-family: var(--font); font-size: 11.5px; font-weight: 600;
+  padding: 4px 12px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,.35); cursor: pointer; border: 0;
+  transition: transform .2s ease, opacity .2s ease;
+}
+.newpill.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+.console-wrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* 0.7.0 fill: the Workspace sizes the iframe to its band; the tree scrolls inside it */
+html.fill, html.fill body { height: 100%; }
+html.fill .wfd.tree-view { height: 100vh; overflow-y: auto; scrollbar-width: thin; }
+html.fill .wfd.tree-view .summary { display: none; }   /* the Workspace header and Now card say the same */

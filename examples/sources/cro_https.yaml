@@ -1,0 +1,34 @@
+# CRO portal: monitoring exports published as folders of CSV files on an HTTPS server with autoindex listings.
+api_version: pkf/v1
+kind: source
+name: cro_https
+type: https
+description: CRO monitoring exports (HTTPS autoindex)
+connection:
+  base_url: https://files.cro-partner.example
+  listing: html_index
+  auth: basic
+  verify_tls: true
+  ca_bundle: null
+  timeout_seconds: 60
+  headers: {}
+credentials:
+  provider: aws_secrets_manager
+  ref: rd/{env}/cro_https          # JSON secret with username, password
+  region: eu-west-1
+  vault_address: null
+  vault_mount: secret
+  fields: {}
+extraction:
+  root: "{input_path}"
+  recursive: true
+  max_depth: 20
+  include: ["**/*.csv"]
+  exclude: []
+  regex: null
+  min_age_seconds: 600             # files are complete after 10 minutes
+  min_files: 1
+  max_files: 5000
+  max_total_bytes: null
+params:
+  input_path: /exports/monitoring

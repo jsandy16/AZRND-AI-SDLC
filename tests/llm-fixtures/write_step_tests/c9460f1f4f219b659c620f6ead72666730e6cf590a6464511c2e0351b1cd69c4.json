@@ -1,0 +1,81 @@
+{
+  "output": {
+    "cases": [
+      {
+        "expect_error": false,
+        "expected_json": "[\"D001/CONTROL_2.txt\",\"D001/a.csv\",\"D001/sub/b.csv\",\"D002/CONTROL_1.txt\",\"D002/c.csv\"]",
+        "input_json": "{\"files\":[\"D001/CONTROL_2.txt\",\"D001/a.csv\",\"D001/sub/b.csv\",\"D002/CONTROL_1.txt\",\"D002/c.csv\"]}",
+        "name": "two_valid_deliveries",
+        "params_json": "{}",
+        "purpose": "Normal path: valid folders, sub-folder files counted, no files changed"
+      },
+      {
+        "expect_error": true,
+        "expected_json": "null",
+        "input_json": "{\"files\":[]}",
+        "name": "empty_package",
+        "params_json": "{}",
+        "purpose": "Rule 1: empty package refused"
+      },
+      {
+        "expect_error": true,
+        "expected_json": "null",
+        "input_json": "{\"files\":[\"root.csv\",\"D001/CONTROL_1.txt\",\"D001/a.csv\"]}",
+        "name": "file_at_root",
+        "params_json": "{}",
+        "purpose": "Rule 2: file at package root refused"
+      },
+      {
+        "expect_error": true,
+        "expected_json": "null",
+        "input_json": "{\"files\":[\"D001/CONTROL_1.txt\",\"D001/a.csv\",\"D002/b.csv\"]}",
+        "name": "no_control_file",
+        "params_json": "{}",
+        "purpose": "Rule 4: folder without control file refused"
+      },
+      {
+        "expect_error": true,
+        "expected_json": "null",
+        "input_json": "{\"files\":[\"D001/CONTROL_1.txt\",\"D001/CONTROL_2.txt\",\"D001/a.csv\"]}",
+        "name": "two_control_files",
+        "params_json": "{}",
+        "purpose": "Rule 4: more than one control file refused"
+      },
+      {
+        "expect_error": true,
+        "expected_json": "null",
+        "input_json": "{\"files\":[\"D001/CONTROL_3.txt\",\"D001/a.csv\",\"D001/b.csv\"]}",
+        "name": "count_mismatch",
+        "params_json": "{}",
+        "purpose": "Rule 6: count differs from other files refused"
+      },
+      {
+        "expect_error": true,
+        "expected_json": "null",
+        "input_json": "{\"files\":[\"D001/a.csv\",\"D001/sub/CONTROL_1.txt\"]}",
+        "name": "control_only_in_subfolder",
+        "params_json": "{}",
+        "purpose": "Rule 3: control file in a sub-folder does not count as the folder's control file"
+      },
+      {
+        "expect_error": false,
+        "expected_json": "[\"D001/CONTROL_0.txt\",\"D002/CONTROL_1.txt\",\"D002/sub/CONTROL_5.txt\"]",
+        "input_json": "{\"files\":[\"D001/CONTROL_0.txt\",\"D002/CONTROL_1.txt\",\"D002/sub/CONTROL_5.txt\"]}",
+        "name": "zero_count_control",
+        "params_json": "{}",
+        "purpose": "Edge: CONTROL_0 with no other files is valid; nested control-like name in sub-folder is counted as other file"
+      }
+    ]
+  },
+  "output_sha256": "45ec50a5f6bdaad455af5ae29d8ec4c6c5834e9b323271120dfa4f31a07f13b6",
+  "provenance": {
+    "cost_usd": 0.03104,
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "1",
+    "recorded_at": "2026-10-17T10:46:19Z",
+    "skill_sha256": "3a609951accc5dbcd8c79526c1a24efd822cbc5df6b906953a5916f90d486233",
+    "turns": 4
+  },
+  "skill": "writing-step-tests",
+  "task": "write_step_tests"
+}

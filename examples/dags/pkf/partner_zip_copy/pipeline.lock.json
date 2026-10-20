@@ -1,0 +1,172 @@
+{
+  "components": {
+    "destination": {
+      "module": "components/destination.py",
+      "name": "partner_landing",
+      "sha256": "81cdc65b53a17b0b6d95fba3030fbdc3be06ff8198b8827c517be5002986d951",
+      "steps": [
+        "under_prefix"
+      ],
+      "titles": [
+        "Deliver under the configured prefix"
+      ]
+    },
+    "source": {
+      "module": "components/source.py",
+      "name": "partner_drop_event_objects",
+      "sha256": "b4a6e2efac71a998cd577ab1fcab9fc56a85c5ab2748e6eaaa17706d75c4c684",
+      "steps": [
+        "take_event_object"
+      ],
+      "titles": [
+        "Take the object named by the event, under incoming/"
+      ]
+    },
+    "trigger": {
+      "module": "components/trigger.py",
+      "name": "partner_drop_sqs",
+      "sha256": "68fda136660fd0cb1f3da4e6a90f4cee016382754d1bac0d040806f2b1bddde7",
+      "steps": [
+        "receive_sqs",
+        "parse_body",
+        "unwrap_sns_if_any",
+        "s3_records_to_events",
+        "keep_incoming_zips",
+        "name_package"
+      ],
+      "titles": [
+        "Read messages from the partner drop queue",
+        "Parse each message body as JSON",
+        "Unwrap SNS envelope if present (harmless otherwise)",
+        "Turn each S3 record into one event, ignoring test events",
+        "Keep only .zip objects under incoming/ in partner-drop-bucket",
+        "Name each package after the zip file without extension"
+      ]
+    }
+  },
+  "connection": {
+    "api_version": "pkf/v1",
+    "check_before_run": true,
+    "description": "",
+    "destination": "partner_landing",
+    "kind": "connection",
+    "name": "partner_zip_copy_connection",
+    "source": "partner_drop_event_objects"
+  },
+  "destination": {
+    "api_version": "pkf/v1",
+    "connection": {
+      "bucket": "az-rd-lake-raw",
+      "endpoint_url": null,
+      "region": "eu-west-1"
+    },
+    "credentials": {
+      "fields": {},
+      "provider": "none",
+      "ref": null,
+      "region": null,
+      "vault_address": null,
+      "vault_mount": "secret"
+    },
+    "delivery": {
+      "if_exists": "skip_identical",
+      "kms_key_id": null,
+      "prefix": "landing/partner/{event_date}/",
+      "server_side_encryption": null,
+      "write_success_marker": false
+    },
+    "description": "from the destination part of the pipeline requirement",
+    "kind": "destination",
+    "name": "partner_landing",
+    "params": {},
+    "type": "s3"
+  },
+  "framework_version": "0.5.0",
+  "lock_sha256": "ff8aef40264b139e946bfb00bcfe7215e4281287a461d2ae61d6c8fcf84e678b",
+  "lock_version": 2,
+  "pipeline": {
+    "api_version": "pkf/v1",
+    "connection": "partner_zip_copy_connection",
+    "description": "Partner zips from the drop bucket to the lake landing zone, event-driven (S3 \u2192 SQS \u2192 Airflow)",
+    "kind": "pipeline",
+    "max_active_runs": 1,
+    "name": "partner_zip_copy",
+    "owner": "clinical-data-eng",
+    "package_name": "{event_key_stem}",
+    "params": {},
+    "retries": 2,
+    "retry_delay_minutes": 5,
+    "schedule": null,
+    "start_date": "2026-10-01",
+    "tags": [
+      "partner",
+      "event-driven"
+    ],
+    "task_split": "per_step",
+    "transformation": null,
+    "trigger": "partner_drop_sqs"
+  },
+  "runtime_version": "0.5.0",
+  "source": {
+    "api_version": "pkf/v1",
+    "connection": {
+      "bucket": "partner-drop-bucket",
+      "endpoint_url": null,
+      "region": "eu-west-1"
+    },
+    "credentials": {
+      "fields": {},
+      "provider": "none",
+      "ref": null,
+      "region": null,
+      "vault_address": null,
+      "vault_mount": "secret"
+    },
+    "description": "from the source part of the pipeline requirement",
+    "extraction": {
+      "exclude": [],
+      "include": [
+        "**"
+      ],
+      "max_depth": 20,
+      "max_files": null,
+      "max_total_bytes": null,
+      "min_age_seconds": 0,
+      "min_files": 1,
+      "recursive": true,
+      "regex": null,
+      "root": "/"
+    },
+    "kind": "source",
+    "name": "partner_drop_event_objects",
+    "params": {},
+    "type": "s3"
+  },
+  "staging_url": "file:///tmp/pkf-staging",
+  "transformation": null,
+  "trigger": {
+    "api_version": "pkf/v1",
+    "connection": {
+      "endpoint_url": null,
+      "region": "eu-west-1"
+    },
+    "credentials": {
+      "fields": {},
+      "provider": "none",
+      "ref": null,
+      "region": null,
+      "vault_address": null,
+      "vault_mount": "secret"
+    },
+    "description": "from the trigger part of the pipeline requirement",
+    "kind": "trigger",
+    "name": "partner_drop_sqs",
+    "params": {
+      "queue_url": "https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events"
+    },
+    "receive": {
+      "op": "sqs"
+    },
+    "schedule": "*/5 * * * *"
+  }
+}

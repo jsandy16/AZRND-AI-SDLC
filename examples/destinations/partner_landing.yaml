@@ -1,0 +1,17 @@
+# destination `partner_landing`: written from the approved split of pipeline `partner_zip_copy` (@claude-demo). Fill in every <REQUIRED>.
+api_version: pkf/v1
+kind: destination
+name: partner_landing
+description: from the destination part of the pipeline requirement
+type: s3
+connection:
+  bucket: az-rd-lake-raw
+  region: eu-west-1
+credentials:
+  provider: none
+delivery:
+  prefix: landing/partner/{event_date}/
+  if_exists: skip_identical
+  server_side_encryption:
+  write_success_marker: false
+params: {}

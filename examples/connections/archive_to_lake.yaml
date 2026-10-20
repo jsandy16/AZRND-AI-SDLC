@@ -1,0 +1,7 @@
+api_version: pkf/v1
+kind: connection
+name: archive_to_lake
+description: ""
+source: archive_bucket
+destination: lake_raw
+check_before_run: true

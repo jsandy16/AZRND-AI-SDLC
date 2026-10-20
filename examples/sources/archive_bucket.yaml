@@ -1,0 +1,13 @@
+api_version: pkf/v1
+kind: source
+name: archive_bucket
+type: s3
+description: Partner drop bucket
+connection: {bucket: partner-drop-bucket, region: eu-west-1, endpoint_url: null}
+credentials: {provider: none}       # the Airflow worker's IAM role
+extraction:
+  root: "incoming/{ds}"
+  recursive: true
+  include: ["**"]
+  min_files: 1
+params: {}

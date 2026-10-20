@@ -1,0 +1,9 @@
+api_version: pkf/v1
+kind: pipeline
+name: archive_mirror
+description: Partner bucket copied unchanged into the raw zone
+owner: platform
+connection: archive_to_lake
+transformation: null
+package_name: "partner_{ds_nodash}"
+schedule: "@daily"

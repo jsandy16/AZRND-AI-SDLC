@@ -1,0 +1,83 @@
+api_version: pkf/v1
+kind: pipeline
+name: partner_zip_copy
+description: Partner zips from the drop bucket to the lake landing zone, event-driven (S3 → SQS → Airflow)
+owner: clinical-data-eng
+requirement: |
+  When a file is placed in the source bucket partner-drop-bucket (region eu-west-1) under the prefix incoming/, an S3
+  event notification sends the event to the SQS queue
+  https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events. A DAG scheduled every 5 minutes reads the
+  events from that queue and copies each zip file, unchanged, from the source bucket to the destination bucket
+  az-rd-lake-raw (region eu-west-1) under the prefix landing/partner/<date of the event>/, keeping the file's path
+  below incoming/. Each zip is its own package, named after the zip file without its extension. Ignore files that are
+  not zips and S3 test events. Delete a message only after its zip is delivered; if an identical object is already
+  at the destination, skip it.
+start_date: 2026-10-01
+tags: [partner, event-driven]
+connection: partner_zip_copy_connection
+trigger: partner_drop_sqs
+transformation:
+package_name: '{event_key_stem}'
+examples:
+  - name: zip_copied_with_event_date
+    messages:
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: incoming/study1/data_20240301.zip
+                size: 123
+    conf:
+    listing:
+      - incoming/study1/data_20240301.zip:123
+    params: {}
+    expected_keys:
+      - landing/partner/2024-03-01/study1/data_20240301.zip
+    expect_error: false
+  - name: test_event_and_non_zip_ignored
+    messages:
+      - Service: Amazon S3
+        Event: s3:TestEvent
+        Bucket: partner-drop-bucket
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: incoming/study1/readme.txt
+                size: 10
+    conf:
+    listing:
+      - incoming/study1/readme.txt:10
+    params: {}
+    expected_keys: []
+    expect_error: false
+  - name: url_encoded_key_decoded
+    messages:
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: incoming/study+1/my+file.zip
+                size: 50
+    conf:
+    listing:
+      - incoming/study 1/my file.zip:50
+    params: {}
+    expected_keys:
+      - landing/partner/2024-03-01/study 1/my file.zip
+    expect_error: false

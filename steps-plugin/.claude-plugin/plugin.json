@@ -1,0 +1,7 @@
+{
+  "name": "package-factory-steps",
+  "version": "0.3.0",
+  "description": "Headless agent roles of package-factory: pipeline decomposer, component planner, step test writer, custom-step coder. Loaded only by pkf through the Claude Agent SDK.",
+  "author": { "name": "Sandeep Jaguri" },
+  "license": "Proprietary"
+}

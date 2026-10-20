@@ -1,0 +1,22 @@
+api_version: pkf/v1
+kind: transformation
+name: lab_control_check
+description: Verify each lab delivery folder against its control file, then restructure
+requirement: |
+  The package contains one or more delivery folders at the top level. Each delivery folder must contain exactly one
+  control file named CONTROL_<n>.txt, where <n> is the number of other files in that same folder (sub-folders
+  included); refuse the whole package if a folder has no control file, more than one, or a count that does not
+  match. After the check, remove the control files, move every remaining file to data/<delivery folder>/<file
+  name> (dropping any sub-folders), compute md5 and sha256 for every file, and write manifest.csv at the package
+  root with path, size, md5 and sha256.
+params: {}
+examples:
+  - name: two_deliveries
+    input: ["D001/CONTROL_2.txt", "D001/lb_a.csv", "D001/sub/lb_b.csv", "D002/CONTROL_1.txt", "D002/lb_c.csv"]
+    expected_output: ["data/D001/lb_a.csv", "data/D001/lb_b.csv", "data/D002/lb_c.csv", "manifest.csv"]
+  - name: count_mismatch
+    input: ["D001/CONTROL_3.txt", "D001/lb_a.csv", "D001/lb_b.csv"]
+    expect_error: true
+  - name: missing_control
+    input: ["D001/lb_a.csv"]
+    expect_error: true

@@ -1,0 +1,105 @@
+# trigger `partner_drop_sqs`: written from the approved split of pipeline `partner_zip_copy` (@claude-demo). Fill in every <REQUIRED>.
+api_version: pkf/v1
+kind: trigger
+name: partner_drop_sqs
+description: from the trigger part of the pipeline requirement
+schedule: '*/5 * * * *'
+connection:
+  region: eu-west-1
+params:
+  queue_url: https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events
+requirement: "Every 5 minutes read messages from the SQS queue https://sqs.eu-west-1.amazonaws.com/123456789012/partner-drop-events.
+  Each message body is an S3 event notification (not wrapped in SNS) from bucket partner-drop-bucket. Parse the JSON and turn
+  each record into one event for the object (URL-decoded key). Ignore s3:TestEvent messages. Keep only objects in bucket partner-drop-bucket
+  whose key starts with incoming/ and ends with .zip; drop all other objects, and drop events left without objects. Each zip
+  is its own package, so do not group events. Name each package after the zip file without its extension, i.e. {event_key_stem}.
+  A message is deleted only after all its packages are delivered.\n"
+examples:
+  - name: zip_under_incoming
+    messages:
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: incoming/study1/data_20240301.zip
+                size: 123
+    conf:
+    params: {}
+    expected_events:
+      - keys:
+          - incoming/study1/data_20240301.zip
+        vars:
+          event_bucket: partner-drop-bucket
+          event_date: '2024-03-01'
+          event_key_stem: data_20240301
+    expect_error: false
+  - name: s3_test_event_ignored
+    messages:
+      - Service: Amazon S3
+        Event: s3:TestEvent
+        Bucket: partner-drop-bucket
+    conf:
+    params: {}
+    expected_events: []
+    expect_error: false
+  - name: non_zip_ignored
+    messages:
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: incoming/study1/readme.txt
+                size: 10
+    conf:
+    params: {}
+    expected_events: []
+    expect_error: false
+  - name: url_encoded_key
+    messages:
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: incoming/study+1/my+file.zip
+                size: 50
+    conf:
+    params: {}
+    expected_events:
+      - keys:
+          - incoming/study 1/my file.zip
+        vars:
+          event_key_stem: my file
+          event_date: '2024-03-01'
+    expect_error: false
+  - name: zip_outside_incoming_ignored
+    messages:
+      - Records:
+          - eventVersion: '2.1'
+            eventSource: aws:s3
+            eventName: ObjectCreated:Put
+            eventTime: '2024-03-01T10:00:00.000Z'
+            s3:
+              bucket:
+                name: partner-drop-bucket
+              object:
+                key: other/x.zip
+                size: 5
+    conf:
+    params: {}
+    expected_events: []
+    expect_error: false

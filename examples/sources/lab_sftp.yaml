@@ -1,0 +1,31 @@
+# Central lab: one folder per delivery, data files plus a CONTROL_<n>.txt naming the data-file count.
+api_version: pkf/v1
+kind: source
+name: lab_sftp
+type: sftp
+description: Central lab deliveries (SFTP)
+connection:
+  host: sftp.centrallab.example
+  port: 22
+  host_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM+q46zWGkXM1yoev4CEou+F50Sc0fxiUJbCZpG6sHPp"
+  insecure_skip_host_key: false
+  timeout_seconds: 60
+credentials:
+  provider: vault
+  ref: rd/{env}/lab_sftp           # KV v2 secret with username, private_key
+  region: null
+  vault_address: https://vault.rd.example:8200
+  vault_mount: secret
+  fields: {}
+extraction:
+  root: "/outbound/{ds_nodash}"
+  recursive: true
+  max_depth: 2
+  include: ["**"]
+  exclude: ["**/*.tmp"]
+  regex: null
+  min_age_seconds: 300
+  min_files: 2
+  max_files: null
+  max_total_bytes: null
+params: {}

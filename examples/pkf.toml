@@ -1,0 +1,10 @@
+# package-factory specs repository
+spec_api_version = "pkf/v1"
+
+[staging]
+# where packages wait between Airflow tasks: s3://bucket/prefix in production (add a lifecycle rule),
+# file:///path for a single-machine development Airflow. PKF_STAGING_URL overrides it at run time.
+url = "file:///tmp/pkf-staging"
+
+[airflow]
+dags_folder = "dags"

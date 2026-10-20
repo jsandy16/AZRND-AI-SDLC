@@ -1,0 +1,150 @@
+{
+  "components": {
+    "destination": {
+      "module": "components/destination.py",
+      "name": "lake_raw",
+      "sha256": "1178389f44a0c36b02241a114eb0f042a2d5bc12235b54a8eaf5824878ec2859",
+      "steps": [
+        "under_prefix"
+      ],
+      "titles": [
+        "Deliver under the configured prefix"
+      ]
+    },
+    "source": {
+      "module": "components/source.py",
+      "name": "archive_bucket",
+      "sha256": "f27bf4f85cdc4db7a6fa1e218e827380f41661200de95d85ad6ea1421389a6d8",
+      "steps": [
+        "list_root",
+        "select_files",
+        "check_limits"
+      ],
+      "titles": [
+        "List the extraction root",
+        "Keep matching files",
+        "Check file count and size"
+      ]
+    },
+    "trigger": {
+      "module": "components/trigger.py",
+      "name": "schedule",
+      "sha256": "467188fce53b6b80c1e4d22c8f5957837d44b165aa208412ad51fdec85cfb819",
+      "steps": [
+        "tick"
+      ],
+      "titles": [
+        "One package per scheduled run"
+      ]
+    }
+  },
+  "connection": {
+    "api_version": "pkf/v1",
+    "check_before_run": true,
+    "description": "",
+    "destination": "lake_raw",
+    "kind": "connection",
+    "name": "archive_to_lake",
+    "source": "archive_bucket"
+  },
+  "destination": {
+    "api_version": "pkf/v1",
+    "connection": {
+      "bucket": "az-rd-lake-raw",
+      "endpoint_url": null,
+      "region": "eu-west-1"
+    },
+    "credentials": {
+      "fields": {},
+      "provider": "none",
+      "ref": null,
+      "region": null,
+      "vault_address": null,
+      "vault_mount": "secret"
+    },
+    "delivery": {
+      "if_exists": "skip_identical",
+      "kms_key_id": null,
+      "prefix": "raw/{source}/{ds}/{package}/",
+      "server_side_encryption": "aws:kms",
+      "write_success_marker": true
+    },
+    "description": "R&D lake raw zone",
+    "kind": "destination",
+    "name": "lake_raw",
+    "params": {},
+    "type": "s3"
+  },
+  "framework_version": "0.5.0",
+  "lock_sha256": "7355473e5ae732d3d2dfd95c9b4f8b2cbd07e03463db674943a59ef03edc8ff9",
+  "lock_version": 2,
+  "pipeline": {
+    "api_version": "pkf/v1",
+    "connection": "archive_to_lake",
+    "description": "Partner bucket copied unchanged into the raw zone",
+    "kind": "pipeline",
+    "max_active_runs": 1,
+    "name": "archive_mirror",
+    "owner": "platform",
+    "package_name": "partner_{ds_nodash}",
+    "params": {},
+    "retries": 2,
+    "retry_delay_minutes": 5,
+    "schedule": "@daily",
+    "start_date": "2026-01-01",
+    "tags": [],
+    "task_split": "per_step",
+    "transformation": null,
+    "trigger": null
+  },
+  "runtime_version": "0.5.0",
+  "source": {
+    "api_version": "pkf/v1",
+    "connection": {
+      "bucket": "partner-drop-bucket",
+      "endpoint_url": null,
+      "region": "eu-west-1"
+    },
+    "credentials": {
+      "fields": {},
+      "provider": "none",
+      "ref": null,
+      "region": null,
+      "vault_address": null,
+      "vault_mount": "secret"
+    },
+    "description": "Partner drop bucket",
+    "extraction": {
+      "exclude": [],
+      "include": [
+        "**"
+      ],
+      "max_depth": 20,
+      "max_files": null,
+      "max_total_bytes": null,
+      "min_age_seconds": 0,
+      "min_files": 1,
+      "recursive": true,
+      "regex": null,
+      "root": "incoming/{ds}"
+    },
+    "kind": "source",
+    "name": "archive_bucket",
+    "params": {},
+    "type": "s3"
+  },
+  "staging_url": "file:///tmp/pkf-staging",
+  "transformation": null,
+  "trigger": {
+    "connection": {},
+    "credentials": {
+      "provider": "none"
+    },
+    "name": "schedule",
+    "params": {},
+    "receive": {
+      "op": "schedule"
+    },
+    "schedule": "@daily"
+  }
+}
