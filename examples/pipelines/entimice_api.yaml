@@ -1,0 +1,31 @@
+# pipeline `entimice_api`: requirements/entimice_api_pipeline_requirement.txt
+api_version: pkf/v1
+kind: pipeline
+name: entimice_api
+description: Copy the files of the Self-Service Portal studies due for a refresh from Entimice into the data-lake buckets, and write each study's result back to its portal record
+owner: data-eng
+connection: entimice_api_connection
+trigger: entimice_selfservice
+transformation:
+package_name: 'submission_{submission_id}'
+params:
+  force_refresh: 'false'
+start_date: 2026-10-01
+retries: 1
+retry_delay_minutes: 5
+max_active_runs: 1
+tags: [entimice, selfservice]
+examples:
+  - name: two_studies_two_buckets
+    params: {force_refresh: 'false'}
+    messages:
+      - {id: 11, submission_data: {studyId: D0000C00001, location: /root/cdar/d000/d0000c00001/ar, destination: SAS, refreshSchedule: Once, lastTransferStatus: ''}}
+      - {id: 12, submission_data: {studyId: D0000C00002, location: /root/cdar/d000/d0000c00002, destination: clinicalstudies, refreshSchedule: Daily, lastTransferStatus: FAILED}}
+      - {id: 13, submission_data: {studyId: D0000C00003, location: /root/cdar/d3, destination: SAS, refreshSchedule: Once, lastTransferStatus: DONE}}
+    listing:
+      - root/cdar/d000/d0000c00001/ar/csr/adam/dev/data/data_area/adadas.sas7bdat:100
+      - root/cdar/d000/d0000c00002/csr/report.pdf:50
+      - root/cdar/d3/x.csv:5
+    expected_keys:
+      - incoming/D0000C00001/root/cdar/d000/d0000c00001/ar/csr/adam/dev/data/data_area/adadas.sas7bdat
+      - D0000C00002/ongoing/root/cdar/d000/d0000c00002/csr/report.pdf

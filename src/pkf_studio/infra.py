@@ -104,7 +104,9 @@ def facts(wt: Path, pipeline: str, env: str, region: str, account: str | None) -
     custom = any(s["op"] == "custom_delivery" for s in parts["destination"]["steps"])
     out["source"] = {"type": src.get("type"), "bucket": (src.get("connection") or {}).get("bucket"),
                      "prefix": _static_prefix(_fmt((src.get("extraction") or {}).get("root", ""), src.get("params") or {})).lstrip("/")}
-    out["destination"] = {"type": dst.get("type"), "bucket": (dst.get("connection") or {}).get("bucket"), "custom_delivery": custom}
+    dconn = dst.get("connection") or {}
+    out["destination"] = {"type": dst.get("type"), "bucket": dconn.get("bucket"), "custom_delivery": custom,
+                          "buckets": sorted({dconn["bucket"]} if dconn.get("bucket") else set((dconn.get("bucket_map") or {}).values()))}
     out["kms_keys"] = sorted({str(k) for k in _has_key({"s": src, "d": dst}, "kms_key_id")})
     staging = settings(repo.root)["staging"]["url"]
     out["staging"] = staging if staging.startswith("s3://") and not custom else None
@@ -155,16 +157,17 @@ def worker_policy(f: dict) -> tuple[dict, list[tuple[str, str]]]:
         calls.extend((a, r) for a in actions for r in resources[:1])
 
     src, dst = f["source"], f["destination"]
-    buckets = {b for b in (src.get("bucket") if src.get("type") == "s3" else None, dst.get("bucket") if dst.get("type") == "s3" else None) if b}
+    dst_buckets = (dst.get("buckets") or ([dst["bucket"]] if dst.get("bucket") else [])) if dst.get("type") == "s3" else []
+    buckets = {b for b in (src.get("bucket") if src.get("type") == "s3" else None, *dst_buckets) if b}
     if buckets:
         add("ListBuckets", ["s3:ListBucket"], [f"arn:aws:s3:::{b}" for b in sorted(buckets)])
     if src.get("type") == "s3" and src.get("bucket"):
         acts = ["s3:GetObject", "s3:GetObjectTagging"] + (["s3:DeleteObject"] if dst.get("custom_delivery") else [])
         add("ReadSource", acts, [f"arn:aws:s3:::{src['bucket']}/{src.get('prefix') or ''}*"])
-    if dst.get("type") == "s3" and dst.get("bucket"):
+    if dst_buckets:
         add("WriteDestination", ["s3:PutObject", "s3:PutObjectTagging", "s3:GetObject", "s3:GetObjectTagging", "s3:AbortMultipartUpload"],
-            [f"arn:aws:s3:::{dst['bucket']}/*"])
-        f["warnings"].append(f"destination keys are computed, so the policy allows writing anywhere in {dst['bucket']}")
+            [f"arn:aws:s3:::{b}/*" for b in dst_buckets])
+        f["warnings"].append(f"destination keys are computed, so the policy allows writing anywhere in {', '.join(dst_buckets)}")
     if f.get("staging"):
         b, _, pre = f["staging"][5:].partition("/")
         add("StagingList", ["s3:ListBucket"], [f"arn:aws:s3:::{b}"])

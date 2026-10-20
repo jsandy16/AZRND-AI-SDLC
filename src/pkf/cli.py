@@ -200,6 +200,15 @@ def design_action(action: str, kind: str, name: str, by: str | None = None, forc
         rec = (design.approve_plan(repo, kind, name, by, evidence) if action == "approve-plan"
                else design.approve_code(repo, kind, name, by, evidence))
         return Result(command=cmd, ok=True, data={"approval": rec, "status": design.status(repo, kind, name)})
+    spec = design.spec_of(repo, kind, name)
+    steps_now = design.peek_steps(repo, kind, name) or []
+    if action == "test" and (design.mode(spec) != "requirement" or (steps_now and not design.custom_ids(steps_now))):
+        # settings, hand-written steps or a plan without custom steps: no generated code, so the test is the examples
+        results = design.run_examples_inprocess(kind, spec, steps_now)
+        bad = [r for r in results if r["status"] == "fail"]
+        return Result(command=cmd, ok=not bad, data={"examples": results, "status": design.status(repo, kind, name)},
+                      issues=[Issue(file=repo.file_of(kind, name), loc=f"examples.{r['example']}", msg=r.get("detail", ""),
+                                    code="example_failed") for r in bad])
     if action in ("code", "test"):
         lock, issues = (_generate_code(design, repo, kind, name, steps, all_steps) if action == "code"
                         else design.test_code(repo, kind, name))
@@ -643,7 +652,8 @@ def main(argv: list[str] | None = None) -> int:
         for i in r.issues:
             print(f"  {i.severity:7} {i.file}{(':' + i.loc) if i.loc else ''}: {i.msg}")
         rest = {k: v for k, v in r.data.items() if k not in ("text", "show")}
-        if isinstance(rest.get("files"), list):  # a run: the per-file rows are in --json and the run log
+        if isinstance(rest.get("files"), list) and all(isinstance(x, dict) for x in rest["files"]) and "tasks" in rest:
+            # a run: the per-file rows are in --json and the run log (a build's "files" are the paths it wrote)
             rows = rest.pop("files")
             counts: dict = {}
             for row in rows:

@@ -30,11 +30,15 @@ LISTING_ITEM = re.compile(r"(.*?)(?::(\d+))?(?::(\d+(?:\.\d+)?))?$", re.S)  # si
 
 
 def _listing(v: list[str]) -> list[str]:
+    """Paths from the top of the source; a leading '/' (absolute paths of REST and file servers) means the same file."""
+    out = []
     for item in v:
+        item = item.lstrip("/") if not item.startswith("//") else item
         path = LISTING_ITEM.match(item).group(1)
         if not path.strip("/") or path.startswith("/") or ".." in path.split("/"):
             raise ValueError(f"'{item}' must be 'relative/path[:size[:age_seconds]]' (a key ending in '/' is a folder marker)")
-    return v
+        out.append(item)
+    return out
 
 
 class _Example(Strict):

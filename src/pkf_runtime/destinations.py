@@ -24,12 +24,14 @@ class S3Destination:
     def __init__(self, conn: dict, creds: dict[str, str]):
         from .sources.s3 import client
 
-        self.bucket = conn["bucket"]
+        self.bucket = conn.get("bucket")
+        self.buckets = [self.bucket] if self.bucket else sorted(set((conn.get("bucket_map") or {}).values()))
         self.s3 = client(conn, creds)
 
     def check(self) -> str:
-        self.s3.head_bucket(Bucket=self.bucket)
-        return f"bucket {self.bucket} reachable"
+        for b in self.buckets:
+            self.s3.head_bucket(Bucket=b)
+        return f"bucket{'s' if len(self.buckets) > 1 else ''} {', '.join(self.buckets)} reachable"
 
     def _existing(self, key: str) -> tuple[str | None, str | None]:
         from botocore.exceptions import ClientError

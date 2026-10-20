@@ -119,11 +119,22 @@ class ListParams(P):
     root: str = Field(default="", description="folder or prefix to list (template); file paths are relative to it")
     recursive: bool = True
     max_depth: int = Field(default=20, ge=0, le=100)
+    keep_root: bool = Field(default=False, description="package paths keep the root folder (the file's full path without the "
+                            "leading '/') instead of being relative to it")
+    blank_root: str | None = Field(default=None, description="when the root renders blank, refuse the package with this message "
+                                   "instead of listing the top of the source")
 
 
 def op_list(groups: list[dict], p: ListParams, ctx: dict, src: SourceView) -> list[dict]:
     for g in groups:
-        g["files"] += src.list(render(p.root, _vars(g, ctx)), p.recursive, p.max_depth)
+        root = render(p.root, _vars(g, ctx)).strip()
+        if p.blank_root is not None and not root.strip("/"):
+            raise PackageError(p.blank_root)
+        found = src.list(root, p.recursive, p.max_depth)
+        if p.keep_root:
+            top = root.strip("/")
+            found = [{**f, "root": "", "path": f"{top}/{f['path']}" if top else f["path"]} for f in found]
+        g["files"] += found
     return groups
 
 

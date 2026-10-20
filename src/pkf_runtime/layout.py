@@ -64,6 +64,44 @@ def op_route(layout: dict, p: RouteParams, ctx: dict) -> dict:
     return layout
 
 
+class Check(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(description="template, e.g. '{study_id}' (compared after trimming)")
+    not_blank: bool = Field(default=False, description="refuse when the value is blank")
+    one_of: list[str] | None = Field(default=None, description="refuse when the value is not one of these (exact match)")
+    error: str = Field(description="the package's error when the check fails (template; may use the run variables)")
+
+
+class CheckParams(P):
+    checks: list[Check] = Field(min_length=1, description="in order; the first failing check refuses the package before any file is delivered")
+
+
+def op_check(layout: dict, p: CheckParams, ctx: dict) -> dict:
+    for c in p.checks:
+        value = render(c.value, layout["vars"]).strip()
+        if (c.not_blank and not value) or (c.one_of is not None and value not in c.one_of):
+            raise PackageError(render(c.error, layout["vars"]))
+    return layout
+
+
+class PrefixByParams(P):
+    by: str = Field(description="template whose value picks the prefix, e.g. '{study_destination}' (exact match after trimming)")
+    prefixes: dict[str, str] = Field(description="value → key prefix template")
+    default: str | None = Field(default=None, description="prefix template for any other value (null: refuse the package)")
+
+
+def op_prefix_by(layout: dict, p: PrefixByParams, ctx: dict) -> dict:
+    value = render(p.by, layout["vars"]).strip()
+    template = p.prefixes.get(value, p.default)
+    if template is None:
+        raise PackageError(f"no key prefix for '{value}' (prefix_by {p.by})")
+    pre = render(template, layout["vars"]).strip("/")
+    for f in layout["files"]:
+        if f not in layout["keys"]:
+            layout["keys"][f] = f"{pre}/{f}" if pre else f
+    return layout
+
+
 class CustomParams(P):
     function: str = Field(pattern=r"^[a-z_][a-z0-9_]*$")
 
@@ -71,6 +109,8 @@ class CustomParams(P):
 DESTINATION_OPS: dict[str, Op] = {o.name: o for o in [
     Op("prefix", PrefixParams, op_prefix, "Every file not yet placed goes to <prefix template>/<package path>."),
     Op("route", RouteParams, op_route, "Rules (globs/regex → key template, or null to skip) place files; first match wins."),
+    Op("check", CheckParams, op_check, "Refuse the package (with the given message) before anything is delivered when a variable is blank or not one of the allowed values."),
+    Op("prefix_by", PrefixByParams, op_prefix_by, "Every file not yet placed goes to <prefix>/<package path>, the prefix chosen by a variable's value (e.g. per destination)."),
     Op("custom", CustomParams, None, "Generated, reviewed function: (layout, params, ctx) -> layout; set layout['keys'][path] = key."),
     Op("custom_delivery", CustomParams, None, "Last step only. Generated, reviewed function that delivers the files itself instead "
        "of the framework's upload: (transfers, params, ctx, aws) -> results. Use for moves (delete the source after the copy), "

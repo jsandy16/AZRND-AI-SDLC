@@ -45,7 +45,21 @@ class RunConfParams(P):
     key: str = Field(default="events", description="dag_run.conf key holding a list of messages (objects or strings)")
 
 
-RECEIVE_OPS = ("schedule", "sqs", "run_conf")
+class SelfServiceParams(P):
+    """One message per submission of a Self-Service Portal form (see pkf_runtime.selfservice). The api key is the
+    trigger credential field `api_key`. After the run, `ack` writes each due record's result back to the portal."""
+
+    base_url: str = Field(description="Self-Service API root (template, e.g. '{self_service_base_url}')")
+    form_id: str = Field(description="form whose submissions are the control list (template, e.g. '{form_id}')")
+    service_user_prid: str = Field(default="", description="written to modifiedByPrid (template)")
+    service_user_name: str = Field(default="", description="written to modifiedByFullName (template)")
+    api_key_prefix: str = Field(default="dpls_", description="a valid api key starts with this")
+    api_key_min_length: int = Field(default=20, ge=1)
+    verify_tls: bool = True
+    ca_bundle: str | None = Field(default=None, description="PEM CA bundle (private CA)")
+
+
+RECEIVE_OPS = ("schedule", "sqs", "run_conf", "selfservice")
 
 
 def _receive_placeholder(events, p, ctx):  # receive steps run in tasks.read_events (they need clients and context)
@@ -236,6 +250,55 @@ def op_require(events: list[dict], p: RequireParams, ctx: dict) -> list[dict]:
     return events
 
 
+class DataVarsParams(P):
+    vars: dict[str, str] = Field(description="new variable → dotted path into the event's data (e.g. submission_data.studyId); "
+                                 "missing or null gives ''")
+    trim: bool = Field(default=True, description="trim the values and remove stray tabs")
+
+
+def op_data_vars(events: list[dict], p: DataVarsParams, ctx: dict) -> list[dict]:
+    bad = [k for k in p.vars if k in BUILTIN_NAMES or not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", k)]
+    if bad:
+        raise ValueError(f"variable names {bad} must be lower_snake_case and not built-ins")
+    for e in _ok(events):
+        new = {}
+        for k, path in p.vars.items():
+            v = e.get("data")
+            for part in path.split("."):
+                v = v.get(part) if isinstance(v, dict) else None
+            v = "" if v is None else (json.dumps(v) if isinstance(v, (dict, list)) else str(v))
+            new[k] = v.replace("\t", "").strip() if p.trim else v
+        e["vars"] = {**e.get("vars", {}), **new}
+    return events
+
+
+class SelfServiceDueParams(P):
+    """Keep the submissions due for a refresh (rules in pkf_runtime.selfservice.due); the others are counted per reason."""
+
+    force: str = Field(default="false", description="template; 'true' treats completed records as not completed (e.g. '{force_refresh}')")
+
+
+def op_selfservice_due(events: list[dict], p: SelfServiceDueParams, ctx: dict) -> list[dict]:
+    from .selfservice import due
+
+    today = dt.date.fromisoformat(ctx["today"]) if ctx.get("today") else dt.date.fromisoformat(ctx["params"]["ds"])
+    force = render(p.force, ctx.get("params", {})).strip().lower() == "true"
+    skipped = ctx.setdefault("not_due", {})
+    out = []
+    for e in events:
+        if e.get("error"):
+            out.append(e)
+            continue
+        record = e.get("data") if isinstance(e.get("data"), dict) else {}
+        data = record.get("submission_data") if isinstance(record.get("submission_data"), dict) else {}
+        ok, why = due(data, today, force)
+        if ok:
+            out.append(e)
+        else:
+            skipped[why] = skipped.get(why, 0) + 1
+    return out
+
+
 class CustomParams(P):
     function: str = Field(pattern=r"^[a-z_][a-z0-9_]*$")
 
@@ -244,6 +307,8 @@ TRIGGER_OPS: dict[str, Op] = {o.name: o for o in [
     Op("schedule", ScheduleParams, _receive_placeholder, "RECEIVE (first step): one event per scheduled run."),
     Op("sqs", SqsParams, _receive_placeholder, "RECEIVE (first step): read up to max_messages SQS messages; a message is deleted only after all its packages are delivered."),
     Op("run_conf", RunConfParams, _receive_placeholder, "RECEIVE (first step): messages passed in the run configuration (Lambda, REST API, manual trigger)."),
+    Op("selfservice", SelfServiceParams, _receive_placeholder, "RECEIVE (first step): one message per submission of a Self-Service "
+       "Portal form; after the run each due record's result (DONE / FAILED / FAILED_INGESTION_STOPPED) is written back to it."),
     Op("parse_json", ParseJsonParams, op_parse_json, "Parse each message body as JSON (into the event's data)."),
     Op("unwrap_sns", UnwrapSnsParams, op_unwrap_sns, "If the data is an SNS notification, continue with its inner Message."),
     Op("s3_records", S3RecordsParams, op_s3_records, "S3 event notification → one event per record with the object (key URL-decoded) and variables "
@@ -253,6 +318,9 @@ TRIGGER_OPS: dict[str, Op] = {o.name: o for o in [
     Op("group", GroupParams, op_group, "Merge events with the same template value into one package (e.g. all files of one batch)."),
     Op("dedupe", DedupeParams, op_dedupe, "Keep one event per object (latest by S3 sequencer)."),
     Op("require", RequireParams, op_require, "Fail the run when there are more events than max_events."),
+    Op("data_vars", DataVarsParams, op_data_vars, "Add variables taken from the event's data by dotted path (trimmed), e.g. study_id: submission_data.studyId."),
+    Op("selfservice_due", SelfServiceDueParams, op_selfservice_due, "Keep only the Self-Service submissions due for a refresh "
+       "(refreshSchedule Once/Daily/Weekly/Monthly, lastTransferStatus, lastTransferAt; force); the others are counted per reason."),
     Op("custom", CustomParams, None, "Generated, reviewed function: (events, params, ctx) -> events."),
 ]}
 
@@ -263,7 +331,7 @@ def provides(steps: list[dict]) -> set[str]:
     for s in steps:
         if s["op"] == "s3_records":
             out |= set(S3_EVENT_VARS)
-        elif s["op"] == "set_vars":
+        elif s["op"] in ("set_vars", "data_vars"):
             out |= set(s["params"].get("vars", {}))
         elif s["op"] == "group":
             out.add(s["params"].get("var", "group"))

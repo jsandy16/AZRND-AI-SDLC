@@ -175,6 +175,8 @@ def looks_secret(value: str) -> bool:
     Ordinary words ("the password is stored in …", "split on the token: underscore") are not secrets."""
     import re
 
+    if value.startswith(("<", "{", "$", "[REDACTED")):  # a placeholder (<password>), a template ({token}) or an env reference
+        return False
     return len(value) >= 8 and re.search(r"[^A-Za-z]", value) is not None
 
 

@@ -1,0 +1,72 @@
+# destination `entimice_datalake`: each study's files, streamed into the bucket of its destination
+# (requirements/entimice_api_pipeline_requirement.txt). bucket_map is DESTINATION_BUCKET_MAP (per environment).
+api_version: pkf/v1
+kind: destination
+name: entimice_datalake
+description: The study's bucket by destination; SAS → incoming/<studyId>/, clinicalstudies → <studyId>/ongoing/
+type: s3
+connection:
+  region: eu-north-1
+  bucket_by: '{study_destination}'
+  bucket_map:
+    SAS: dev-dpl-dstore-sas-eu-north-1
+    clinicalstudies: dev-dpl-clinicalstudies-eu-north-1
+credentials: {provider: none}
+delivery:
+  mode: stream
+  if_exists: overwrite
+  part_size_mb: 16
+  max_concurrency: 8
+  content_types:
+    .sas7bdat: application/octet-stream
+    .pdf: application/pdf
+    .xml: application/xml
+    .xls: application/vnd.ms-excel
+    .xlsx: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    .csv: text/csv
+    .txt: text/plain
+  default_content_type: application/octet-stream
+  verify_size: true
+steps:
+  - id: configuration
+    op: check
+    title: Destination and studyId are usable (no file is copied otherwise)
+    params:
+      checks:
+        - value: '{study_destination}'
+          not_blank: true
+          error: Destination is blank — enter the destination in the Self-Service Portal.
+        - value: '{study_destination}'
+          one_of: [SAS, clinicalstudies]
+          error: Unknown destination '{study_destination}' — cannot resolve S3 bucket.
+        - value: '{study_id}'
+          not_blank: true
+          error: Missing studyId in submission_data — cannot build S3 key.
+  - id: key_layout
+    op: prefix_by
+    title: Key layout by destination
+    params:
+      by: '{study_destination}'
+      prefixes: {SAS: 'incoming/{study_id}/', clinicalstudies: '{study_id}/ongoing/'}
+      default: '{study_id}/'
+examples:
+  - name: sas
+    files: [root/cdar/d1/data/a.sas7bdat]
+    vars: {study_id: D1, study_destination: SAS}
+    expected_keys: [incoming/D1/root/cdar/d1/data/a.sas7bdat]
+  - name: clinicalstudies
+    files: [root/cdar/d2/csr/report.pdf]
+    vars: {study_id: D2, study_destination: clinicalstudies}
+    expected_keys: [D2/ongoing/root/cdar/d2/csr/report.pdf]
+  - name: blank_destination
+    files: [root/a.txt]
+    vars: {study_id: D3, study_destination: ''}
+    expect_error: true
+  - name: unknown_destination
+    files: [root/a.txt]
+    vars: {study_id: D3, study_destination: sas}
+    expect_error: true
+  - name: blank_study_id
+    files: [root/a.txt]
+    vars: {study_id: '', study_destination: SAS}
+    expect_error: true

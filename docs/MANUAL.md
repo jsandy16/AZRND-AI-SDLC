@@ -144,6 +144,8 @@ The fields each adapter reads:
 - **sftp:** `username`, plus `private_key` (with an optional `passphrase`) or `password`
 - **ftp:** `username` and `password`
 - **s3 and sqs:** optional AWS keys; without them the default AWS chain is used
+- **entimice:** `username`, `password`
+- **trigger `selfservice`:** `api_key` (the Self-Service Portal api key)
 
 ### 4.2 Trigger
 
@@ -177,7 +179,7 @@ parameters cannot be overridden by a run, so a run can never be pointed at anoth
 api_version: pkf/v1
 kind: source
 name: cro_https
-type: https                       # https | sftp | ftp | s3 | local
+type: https                       # https | sftp | ftp | s3 | local | entimice
 connection: {...}                 # by type, below
 credentials: {...}
 extraction:                       # settings mode: list root, select, settle, limits
@@ -202,6 +204,15 @@ params: {input_path: /exports/monitoring}
 | `ftp` | `host`, `port`, `tls: explicit \| none`, `ca_bundle`, `passive`, `timeout_seconds` (MLSD required) |
 | `s3` | `bucket`, `region`, `endpoint_url` |
 | `local` | `base_path` (development and tests) |
+| `entimice` | `base_url`, `verify_tls`, `ca_bundle`, `account_by` (template), `accounts` (value → secret ref of that account) |
+
+**Entimice** (a REST document repository): session login (`POST /sessions` with username/password headers),
+recursive JSON listing (`GET /system/children`), streamed download (`GET /system?type=file`, gzip decoded). Credential
+fields `username`, `password` (the default account). `accounts` maps a value of `account_by` (e.g. the study's
+destination, case-insensitive after trimming) to the secret of another account, resolved with the same provider; any
+other value uses the default account. Every account the run's packages need is logged in to before any package is
+listed (a login failure fails the run); every session is deleted at the end of each task, also on failure. A listing
+failure fails only its package. Use it with `delivery.mode: stream`.
 
 HTTPS servers offer three listing modes:
 
@@ -257,6 +268,14 @@ params: {}
 Delivery policies always come from `delivery`, even when a requirement or steps decide the keys.
 
 - `skip_identical` compares SHA-256 values. Objects carry `pkf-sha256` and `pkf-run-id` metadata.
+- **`mode: stream`** (default `staged`): each file is streamed from the source straight into a multipart upload — no
+  local copy, no staging, files of any size (`part_size_mb`, default 16, is raised automatically when a file would need
+  more than ~9 500 parts; `max_concurrency` parts in parallel, default 8). `content_types` maps extensions to
+  Content-Type (`default_content_type` for others); `verify_size` HEADs each object and fails the file when its size
+  differs from the Content-Length the source declared. One failing file never stops the others. Needs a source that can
+  stream (`entimice`), no transformation, and `if_exists` `overwrite` or `fail`. No metadata or tags are written.
+- **A bucket per package:** `connection: {bucket_by: "{study_destination}", bucket_map: {SAS: …, clinicalstudies: …}}`
+  instead of `bucket` (exact match after trimming; needs `mode: stream`).
 - With `fail`, an object that an earlier attempt of the *same* run already uploaded is accepted.
 - The local destination writes each file under a temporary name and then renames it.
 
@@ -505,6 +524,9 @@ is never an open question. Components owned by other pipelines can be reused unc
 | `schedule` | receive: one event per scheduled run |
 | `sqs` | receive: up to `max_messages` (≤ 1000); `visibility_timeout_seconds` must exceed a run's duration; `delete_unmatched`; `max_receives` (only for queues without a dead-letter queue) |
 | `run_conf` | receive: messages in `dag_run.conf[key]` (Lambda, REST API, manual) |
+| `selfservice` | receive: one message per submission of a Self-Service Portal form (`base_url`, `form_id`, credential field `api_key`, which must start with `dpls_`, be ≥ 20 characters, no spaces); after the run, `ack` writes each due record's result back to it (see §11.3) |
+| `selfservice_due` | keep the submissions due for a refresh (refreshSchedule Once/Daily/Weekly/Monthly, lastTransferStatus, lastTransferAt; `force`); the others are counted per reason in the report |
+| `data_vars` | variables from the event's data by dotted path, trimmed (e.g. `study_id: submission_data.studyId`) |
 | `parse_json`, `unwrap_sns` | message body → data; SNS envelope → inner message |
 | `s3_records` | one event per record; key URL-decoded (`+` is a space); `s3:TestEvent` dropped; `event_*` variables |
 | `filter` | bucket (template), key globs/regex, size |
@@ -515,7 +537,7 @@ is never an open question. Components owned by other pipelines can be reused unc
 
 | op | does |
 |---|---|
-| `list` | every file under a root (template), recursive, depth-limited |
+| `list` | every file under a root (template), recursive, depth-limited; `keep_root` keeps the root in the package paths (full source paths); `blank_root` refuses the package with a message when the root is blank |
 | `from_event` | exactly the objects the event names; keys must be under `root`, which is removed from paths |
 | `select`, `min_age`, `latest`, `limits` | globs/regex; settled files only; newest N; counts and bytes |
 | `control_file` | keep only what a small control file lists (lines, CSV column, JSON list) |
@@ -530,6 +552,8 @@ is never an open question. Components owned by other pipelines can be reused unc
 |---|---|
 | `prefix` | `<prefix>/<package path>` for files not yet placed |
 | `route` | rules: globs/regex → key template, or `null` to not deliver; first match wins |
+| `check` | ordered checks of variables (`not_blank`, `one_of`); the first that fails refuses the package with its `error` message before any file is delivered |
+| `prefix_by` | `<prefix>/<package path>`, the prefix chosen by a variable's value (`prefixes`, `default`) |
 | `custom` | `(layout, params, ctx) -> layout` |
 | `custom_delivery` | last step only: `(transfers, params, ctx, aws) -> results` — the function delivers the files itself (moves, server-side copies, tags) |
 
@@ -686,6 +710,33 @@ moto S3 server and checks tags, deletes, `error/` and skipped files.
 Worker permissions for a move: `s3:ListBucket`, `s3:GetObject`, `s3:GetObjectTagging`, `s3:PutObject`,
 `s3:PutObjectTagging`, `s3:DeleteObject` on the bucket.
 
+### 11.3 Worked example: Self-Service control list → Entimice → S3, with write-back (`entimice_api`)
+
+`examples/pipelines/entimice_api.yaml` implements `examples/requirements/entimice_api_pipeline_requirement.txt` with
+catalogue steps only (no generated code):
+
+- **trigger `entimice_selfservice`:** `schedule: "0 6,18 * * *"`; `selfservice` (the form's submissions) →
+  `parse_json` → `selfservice_due` (`force: "{force_refresh}"`, a pipeline run parameter) → `data_vars`
+  (`submission_id`, `study_id`, `study_location`, `study_destination`)
+- **source `entimice_studies`:** `type: entimice`, the clinicalstudies account by destination; `list` the study's
+  location (`keep_root`, `max_depth: 20`, `blank_root: Missing location in submission_data`)
+- **no transformation**
+- **destination `entimice_datalake`:** a bucket per destination (`bucket_map`), `mode: stream`, `if_exists: overwrite`,
+  Content-Types by extension; `check` (destination blank, unknown, studyId blank) → `prefix_by` (SAS →
+  `incoming/<studyId>/`, clinicalstudies → `<studyId>/ongoing/`, else `<studyId>/`)
+- **connection:** `check_before_run: false` (a run with no study due touches neither Entimice nor S3); pipeline
+  `max_active_runs: 1`
+
+With a `selfservice` trigger the run's outcome is recorded in the portal: `ack` decides each due study's result by the
+requirement's rules (listing failed → no files → configuration → failed files → nothing copied → DONE), applies the
+consecutive-failure limit (Once 10, Daily 15, kept in the record's error text) and PUTs the record's `submission_data`
+with only the result fields changed. A failed write-back is logged and never fails the run; failed studies do not fail
+the run either. The run fails when the control list cannot be read, the api key is invalid, an Entimice login fails, or
+something fails outside a single study. The report has one line per due study and the not-due counts per reason.
+
+`python dryrun/entimice_run.py` runs it end to end against local stand-ins for Entimice, the Self-Service API and Vault
+(`dryrun/entimice_servers.py`) and a moto S3 (`AWS_ENDPOINT_URL`); `tests/test_entimice_pipeline.py` covers the rules.
+
 ## 12. CLI reference
 
 `--json` (before the command) prints one result envelope. Exit codes: 0 ok, 1 problems, 2 usage or environment
@@ -701,7 +752,7 @@ error.
 | `pkf show <kind\|pipeline> <name>` | plan, test cases and results (or the split) for review |
 | `pkf approve-plan <kind\|pipeline> <name> --by @h [--force] [--evidence URL --github-id N --head-sha S]` | a person approves (Studio: with the GitHub review or comment as evidence) |
 | `pkf code <kind> <name> [--step ID]... [--all]` | coder with the framework's test loop. Default: only the custom steps whose function is missing or failing (all when none is); `--step` exactly those steps; `--all` every step. The file is written after each step, so what the coder wrote is kept when it stops part-way ("the AI coder stopped at step <id>: …") |
-| `pkf test <kind> <name>` / `pkf test pipeline <name>` | all examples and cases / end-to-end examples |
+| `pkf test <kind> <name>` / `pkf test pipeline <name>` | all examples and cases (a component without generated code: its examples) / end-to-end examples |
 | `pkf approve-code <kind> <name> --by @h [--evidence …]` | a person approves custom code |
 | `pkf analyze-requirements TEXT_FILE --name P [--owner O] [--source-file F]` | requirement analyst: document text → `pipelines/P.yaml` + pseudocode |
 | `pkf transform <action> <name>` | compatibility alias for transformations |

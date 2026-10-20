@@ -33,14 +33,20 @@ class SourceSession(Protocol):
     def close(self) -> None: ...
 
 
-ADAPTERS = {"https": "HttpsSession", "sftp": "SftpSession", "ftp": "FtpSession", "s3": "S3Session", "local": "LocalSession"}
+ADAPTERS = {"https": "HttpsSession", "sftp": "SftpSession", "ftp": "FtpSession", "s3": "S3Session", "local": "LocalSession",
+            "entimice": "EntimiceSession"}
+MULTI_ACCOUNT = ("entimice",)
+"""Adapters that take a `resolve(ref) -> credentials` callable for extra accounts (per package)."""
 
 
-def open_source(spec: dict, creds: dict[str, str]) -> SourceSession:
+def open_source(spec: dict, creds: dict[str, str], resolve=None) -> SourceSession:
     if spec["type"] not in ADAPTERS:
         raise ValueError(f"unknown source type {spec['type']}")
     mod = importlib.import_module(f"{__name__}.{spec['type']}")
-    return getattr(mod, ADAPTERS[spec["type"]])(spec["connection"], creds)
+    cls = getattr(mod, ADAPTERS[spec["type"]])
+    if spec["type"] in MULTI_ACCOUNT:
+        return cls(spec["connection"], creds, resolve)
+    return cls(spec["connection"], creds)
 
 
 def select_files(files: list[RemoteFile], ex: dict, now: float | None = None) -> list[RemoteFile]:

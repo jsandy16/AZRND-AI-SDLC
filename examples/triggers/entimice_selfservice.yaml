@@ -1,0 +1,78 @@
+# trigger `entimice_selfservice`: the Self-Service Portal control list of the Entimice pipeline
+# (requirements/entimice_api_pipeline_requirement.txt). Environment values: params; local values are the stand-ins of
+# dryrun/entimice_servers.py — set each environment's values before deploying.
+api_version: pkf/v1
+kind: trigger
+name: entimice_selfservice
+description: Twice a day, the Self-Service Portal submissions that are due for a refresh (one package per due study)
+schedule: 0 6,18 * * *
+credentials:
+  provider: vault           # ENTIMICE_SECRET "entimice": the default account and the Self-Service api key
+  ref: entimice
+  vault_mount: secret
+  fields: {api_key: self_service_api_key}
+params:
+  self_service_base_url: http://127.0.0.1:18081   # SELF_SERVICE_BASE_URL
+  form_id: entimice-studies                       # FORM_ID
+  service_user_prid: svc-entimice                 # SERVICE_USER_PRID
+  service_user_name: Entimice Ingestion Service   # SERVICE_USER_NAME
+steps:
+  - id: read_control_list
+    op: selfservice
+    title: Read the form's submissions (the control list)
+    params:
+      base_url: '{self_service_base_url}'
+      form_id: '{form_id}'
+      service_user_prid: '{service_user_prid}'
+      service_user_name: '{service_user_name}'
+  - id: parse_record
+    op: parse_json
+    title: Each submission record as data
+    params: {}
+  - id: keep_due
+    op: selfservice_due
+    title: Keep the studies due for a refresh (force_refresh treats completed studies as not completed)
+    params: {force: '{force_refresh}'}
+  - id: study_vars
+    op: data_vars
+    title: Study variables from the record (trimmed, stray tabs removed)
+    params:
+      vars:
+        submission_id: id
+        study_id: submission_data.studyId
+        study_location: submission_data.location
+        study_destination: submission_data.destination
+examples:
+  - name: due_rules
+    description: today is 2024-03-01 (the examples' ds)
+    params: {force_refresh: 'false'}
+    messages:
+      - {id: 1, submission_data: {studyId: "\tD1\t", location: /root/cdar/d1, destination: SAS, refreshSchedule: Once, lastTransferStatus: ''}}
+      - {id: 2, submission_data: {studyId: D2, refreshSchedule: once, lastTransferStatus: Done}}
+      - {id: 3, submission_data: {studyId: D3, refreshSchedule: Daily, lastTransferStatus: COMPLETED, lastTransferAt: '2024-02-29 11:59 PM'}}
+      - {id: 4, submission_data: {studyId: D4, refreshSchedule: Daily, lastTransferStatus: DONE, lastTransferAt: '2024-03-01 00:31'}}
+      - {id: 5, submission_data: {studyId: D5, refreshSchedule: ' weekly ', lastTransferStatus: DONE, lastTransferAt: 2/23/2024 11:36PM}}
+      - {id: 6, submission_data: {studyId: D6, refreshSchedule: Weekly, lastTransferStatus: DONE, lastTransferAt: 02/24/2024 00:31}}
+      - {id: 7, submission_data: {studyId: D7, refreshSchedule: Monthly, lastTransferStatus: DONE, lastTransferAt: '2024-01-31'}}
+      - {id: 8, submission_data: {studyId: D8, refreshSchedule: Monthly, lastTransferStatus: DONE, lastTransferAt: '2024-02-01'}}
+      - {id: 9, submission_data: {studyId: D9, refreshSchedule: Daily, lastTransferStatus: done, lastTransferAt: 'not a date'}}
+      - {id: 10, submission_data: {studyId: D10, refreshSchedule: Daily, lastTransferStatus: FAILED_INGESTION_STOPPED}}
+      - {id: 11, submission_data: {studyId: D11, refreshSchedule: Hourly, lastTransferStatus: ''}}
+      - {id: 12, submission_data: {studyId: D12, refreshSchedule: '', lastTransferStatus: ''}}
+      - {id: 13, submission_data: {studyId: D13, refreshSchedule: Weekly, lastTransferStatus: FAILED, lastTransferAt: '2024-02-29'}}
+    expected_events:
+      - {vars: {submission_id: '1', study_id: D1, study_location: /root/cdar/d1, study_destination: SAS}}
+      - {vars: {study_id: D3}}
+      - {vars: {study_id: D5}}
+      - {vars: {study_id: D7}}
+      - {vars: {study_id: D9}}
+      - {vars: {study_id: D13}}
+  - name: force_refresh
+    params: {force_refresh: 'true'}
+    messages:
+      - {id: 2, submission_data: {studyId: D2, refreshSchedule: Once, lastTransferStatus: DONE}}
+      - {id: 4, submission_data: {studyId: D4, refreshSchedule: Daily, lastTransferStatus: DONE, lastTransferAt: '2024-03-01'}}
+      - {id: 10, submission_data: {studyId: D10, refreshSchedule: Daily, lastTransferStatus: FAILED_INGESTION_STOPPED}}
+    expected_events:
+      - {vars: {study_id: D2}}
+      - {vars: {study_id: D4}}

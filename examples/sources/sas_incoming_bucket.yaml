@@ -1,4 +1,4 @@
-# source `sas_incoming_bucket`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every dev-dpl-dstore-sas-eu-north-1-992382551516.
+# source `sas_incoming_bucket`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every <REQUIRED>.
 api_version: pkf/v1
 kind: source
 name: sas_incoming_bucket

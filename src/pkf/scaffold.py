@@ -60,10 +60,16 @@ SOURCE_CONN = {
   endpoint_url: null                 # S3-compatible endpoint (tests, MinIO)""",
     "local": """connection:
   base_path: "{R}"                   # folder on the worker (development only)""",
+    "entimice": """connection:
+  base_url: "{R}"                    # Entimice REST root (per environment)
+  verify_tls: true
+  ca_bundle: null
+  account_by: null                   # e.g. '{{study_destination}}': picks the account per package
+  accounts: {{}}                       # value of account_by → secret ref of that account (others: the default account)""",
 }
 SOURCE_FIELDS = {"https": "username/password (basic) or token (bearer)", "sftp": "username, and password or private_key",
                  "ftp": "username, password", "s3": "optional aws_access_key_id/aws_secret_access_key (default: worker role)",
-                 "local": "none"}
+                 "local": "none", "entimice": "username, password (the default account)"}
 
 DEST_CONN = {"s3": SOURCE_CONN["s3"], "local": SOURCE_CONN["local"]}
 DELIVERY = """delivery:

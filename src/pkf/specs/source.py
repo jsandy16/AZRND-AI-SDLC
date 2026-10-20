@@ -113,6 +113,30 @@ class S3Source(_Base):
     connection: S3Connection
 
 
+class EntimiceConnection(Strict):
+    base_url: str = Field(pattern=r"^https?://", description="Entimice REST root, e.g. https://entimice.example/api")
+    verify_tls: bool = Field(default=True, description="VERIFY_SSL")
+    ca_bundle: str | None = Field(default=None, description="Path to a PEM CA bundle (private CA)")
+    account_by: Template | None = Field(default=None, description="template whose value picks the account, e.g. '{study_destination}'")
+    accounts: dict[str, Template] = Field(default_factory=dict, description="value of account_by (case-insensitive, trimmed) → "
+                                          "secret ref of that account (same provider as `credentials`); other values use the default account")
+
+    @model_validator(mode="after")
+    def _https(self) -> "EntimiceConnection":
+        if self.base_url.startswith("http://") and not self.base_url.startswith(("http://127.0.0.1", "http://localhost")):
+            raise ValueError("base_url must be https (http only for localhost test servers)")
+        if self.accounts and not self.account_by:
+            raise ValueError("accounts needs account_by (the template that picks the account)")
+        return self
+
+
+class EntimiceSource(_Base):
+    """Credential fields: username, password (the default account; `connection.accounts` names the others)."""
+
+    type: Literal["entimice"]
+    connection: EntimiceConnection
+
+
 class LocalConnection(Strict):
     base_path: str = Field(description="Folder on the worker (development and tests)")
 
@@ -122,5 +146,5 @@ class LocalSource(_Base):
     connection: LocalConnection
 
 
-Source = Annotated[Union[HttpsSource, SftpSource, FtpSource, S3Source, LocalSource], Field(discriminator="type")]
-SOURCE_TYPES = ("https", "sftp", "ftp", "s3", "local")
+Source = Annotated[Union[HttpsSource, SftpSource, FtpSource, S3Source, LocalSource, EntimiceSource], Field(discriminator="type")]
+SOURCE_TYPES = ("https", "sftp", "ftp", "s3", "local", "entimice")

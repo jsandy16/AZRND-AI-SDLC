@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import VERSION, components, credentials, delivery, staging
+from . import VERSION, components, credentials, delivery, selfservice, staging, streaming
 from .destinations import deliver, open_destination
 from .discovery import SourceView, initial_groups, run_source_steps
 from .events import messages_to_events, receive_step, run_event_steps
@@ -95,6 +95,17 @@ def _creds(spec: dict | None, lock: dict, ctx: dict) -> dict[str, str]:
     return credentials.resolve(spec, builtins(lock, ctx))
 
 
+def _open_source(lock: dict, ctx: dict):
+    """The source session; adapters with several accounts resolve the others with the source's credential provider."""
+    src = lock["source"]
+    spec = src.get("credentials") or {}
+
+    def resolve(ref: str) -> dict[str, str]:
+        return credentials.resolve({**spec, "ref": ref}, builtins(lock, ctx))
+
+    return open_source(src, _creds(spec, lock, ctx), resolve)
+
+
 def _workdir() -> Path:
     return Path(tempfile.mkdtemp(prefix="pkf_"))
 
@@ -110,9 +121,8 @@ def _pkg_stage(lock: dict, ctx: dict, index: int, name: str) -> str:
 # ---------------------------------------------------------------------------------------------- checks
 def check_source(lock: dict, ctx: dict) -> dict:
     src = lock["source"]
-    creds = _creds(src.get("credentials"), lock, ctx)
     with access_errors(f"source {src['name']}"):
-        s = open_source(src, creds)
+        s = _open_source(lock, ctx)
         try:
             return {"source": s.check()}
         finally:
@@ -152,6 +162,8 @@ def _receive(lock: dict, step: dict, ctx: dict, v: dict) -> tuple[list[dict], di
         if not isinstance(items, list):
             raise PackageError(f"run configuration '{p.get('key', 'events')}' must be a list")
         return [{"id": f"conf-{i}", "body": it if isinstance(it, str) else json.dumps(it), "attributes": {}} for i, it in enumerate(items)], {}
+    if op == "selfservice":
+        return _receive_selfservice(lock, p, ctx, v), {}
     if op != "sqs":
         raise ValueError(f"unknown receive step '{op}'")
     sqs, url = _sqs(lock, ctx), render(p["queue_url"], v)
@@ -171,6 +183,32 @@ def _receive(lock: dict, step: dict, ctx: dict, v: dict) -> tuple[list[dict], di
                 msgs.append({"id": m["MessageId"], "body": m.get("Body", ""), "attributes": m.get("Attributes", {})})
             wait = 0
     return msgs, handles
+
+
+def _selfservice(lock: dict, p: dict, ctx: dict, v: dict) -> dict:
+    """The rendered selfservice receive parameters and the validated api key (trigger credential field api_key)."""
+    t = lock.get("trigger") or {}
+    key = _creds(t.get("credentials"), lock, ctx).get("api_key")
+    selfservice.check_api_key(key, p.get("api_key_prefix", "dpls_"), p.get("api_key_min_length", 20))
+    return {"base_url": render(p["base_url"], v), "form_id": render(p["form_id"], v), "api_key": key,
+            "prid": render(p.get("service_user_prid") or "", v), "name": render(p.get("service_user_name") or "", v),
+            "verify_tls": p.get("verify_tls", True), "ca_bundle": p.get("ca_bundle")}
+
+
+def _receive_selfservice(lock: dict, p: dict, ctx: dict, v: dict) -> list[dict]:
+    """One message per submission; the control list failing fails the run before anything is read or written."""
+    c = _selfservice(lock, p, ctx, v)
+    try:
+        records = selfservice.fetch_submissions(c["base_url"], c["form_id"], c["api_key"], verify_tls=c["verify_tls"],
+                                                ca_bundle=c["ca_bundle"])
+    except selfservice.SelfServiceError as exc:
+        raise SourceError(str(exc)) from None
+    msgs = []
+    for i, r in enumerate(records):
+        rid = r.get("id") if isinstance(r, dict) else None
+        msgs.append({"id": f"submission-{rid}" if rid is not None else f"submission-index-{i}", "body": json.dumps(r), "attributes": {}})
+    log.info("Self-Service control list: %s submission(s)", len(msgs))
+    return msgs
 
 
 def _release(lock: dict, ctx: dict, url: str, handles: list[str]) -> None:
@@ -229,18 +267,22 @@ def read_events(lock: dict, ctx: dict) -> dict:
                           m["id"], m["attributes"].get("ApproximateReceiveCount"), limit, m["body"][:200])
             _delete(lock, ctx, queue, [handles[m["id"]] for m in over])
             messages = [m for m in messages if m not in over]
-    events = run_event_steps(messages_to_events(messages), steps[1:], {"params": v, "run_id": v["run_id"]}, custom)
+    ectx = {"params": v, "run_id": v["run_id"], "today": dt.datetime.now(dt.timezone.utc).date().isoformat()}
+    events = run_event_steps(messages_to_events(messages), steps[1:], ectx, custom)
     used = {m for e in events for m in e.get("message_ids", [])}
     unmatched = [m["id"] for m in messages if m["id"] not in used]
     queue = render(recv["params"]["queue_url"], v) if recv["op"] == "sqs" else None
     deleted = _delete(lock, ctx, queue, [handles[m] for m in unmatched]) if queue and recv["params"].get("delete_unmatched", True) else 0
     staging.put_json(_url(lock, ctx, "_run/events.json"), {"receive": recv["op"], "queue_url": queue, "events": events,
-                                                          "handles": {m: handles[m] for m in used if m in handles}})
+                                                          "handles": {m: handles[m] for m in used if m in handles},
+                                                          "not_due": ectx.get("not_due") or {}})
     errors = [e for e in events if e.get("error")]
     for e in errors:
         log.warning("event %s: %s (its message stays in the queue)", e["id"], e["error"])
     out = {"messages": len(messages), "events": len(events) - len(errors), "event_errors": len(errors),
            "unmatched_acknowledged": deleted}
+    if ectx.get("not_due"):
+        out["not_due"] = dict(sorted(ectx["not_due"].items()))
     log.info("trigger: %s", out)
     return out
 
@@ -264,11 +306,22 @@ def plan_packages(lock: dict, ctx: dict) -> list[dict]:
     src = lock["source"]
     session = None
     if good:
-        with access_errors(f"source {src['name']}"):
-            session = open_source(src, _creds(src.get("credentials"), lock, ctx))
+        try:
+            with access_errors(f"source {src['name']}"):
+                session = _open_source(lock, ctx)
+                prepare = getattr(session, "prepare", None)
+                if prepare is not None:  # log in to every account the events need before any of them is listed
+                    prepare([variables(lock, ctx, e.get("vars")) for e in good])
+        except BaseException:
+            if session is not None:
+                session.close()  # the sessions that did open are deleted even though the run fails
+            raise
     try:
         for e in good:
             v = variables(lock, ctx, e.get("vars"))
+            bind = getattr(session, "bind", None)
+            if bind is not None:
+                bind(v)
             sctx = {"params": v, "run_id": v["run_id"], "now": time.time(),
                     "source_bucket": (src.get("connection") or {}).get("bucket") if src["type"] == "s3" else None}
             try:
@@ -397,6 +450,10 @@ def _direct(lock: dict) -> bool:
     return delivery.has_custom_delivery(components.load(lock, "destination")[0])
 
 
+def _stream(lock: dict) -> bool:
+    return (lock["destination"].get("delivery") or {}).get("mode") == "stream"
+
+
 def _plan(lock: dict, ctx: dict) -> dict:
     """This run's plan.json; missing → RunFailed (D6: on multi-worker Airflow every worker must reach the staging
     that plan_packages wrote to)."""
@@ -416,10 +473,15 @@ def extract(lock: dict, spec: dict, ctx: dict) -> dict:
         size = sum(f.get("size") or 0 for f in p["files"])
         log.info("package %s: %s file(s), %s bytes, delivered directly (no staging)", p["package"], len(p["files"]), size)
         return {"stage": None, "direct": True, "index": spec["index"], "package": p["package"], "files": len(p["files"]), "bytes": size}
+    if _stream(lock):  # upload streams every file from the source: nothing to stage
+        log.info("package %s: %s file(s), streamed to the destination at upload (no staging)", p["package"], len(p["files"]))
+        return {"stage": None, "stream": True, "index": spec["index"], "package": p["package"], "files": len(p["files"]), "bytes": None}
     v = variables(lock, ctx, p["vars"])
     work = _workdir()
     with access_errors(f"source {src['name']}"):
-        session = open_source(src, _creds(src.get("credentials"), lock, ctx))
+        session = _open_source(lock, ctx)
+        if hasattr(session, "bind"):
+            session.bind(v)
     try:
         pkg = Package(work, p["package"], v)
         for f in p["files"]:
@@ -503,9 +565,78 @@ def _upload_direct(lock: dict, previous: dict, ctx: dict) -> dict:
     return summary
 
 
+def _bucket(dst: dict, v: dict) -> str:
+    """The package's bucket: the connection's bucket, or bucket_map[render(bucket_by)] (exact match after trimming)."""
+    conn = dst.get("connection") or {}
+    if conn.get("bucket"):
+        return conn["bucket"]
+    value = render(conn["bucket_by"], v).strip()
+    if value not in (conn.get("bucket_map") or {}):
+        raise PackageError(f"no bucket for '{value}' ({conn['bucket_by']}): add it to the destination's bucket_map")
+    return conn["bucket_map"][value]
+
+
+def _record_failure(lock: dict, ctx: dict, index: int, error: str, objects: list | None = None, refused: bool = False) -> None:
+    """What a failed package did, in staging, for ack (portal write-back) and the per-file report. refused: the layout
+    refused the package before any file was delivered."""
+    doc = {"index": index, "error": error, "refused": refused}
+    if objects is not None:
+        doc["objects"] = objects
+    staging.put_json(_url(lock, ctx, f"_run/failed/p{index:04d}.json"), doc)
+
+
+def _upload_stream(lock: dict, previous: dict, ctx: dict) -> dict:
+    """delivery.mode stream: the layout (and its checks) first, then every file streamed from the source into a
+    multipart upload. Files that fail are recorded; the package fails after the others were delivered."""
+    dst, src = lock["destination"], lock["source"]
+    plan = _plan(lock, ctx)
+    p = plan["packages"][previous["index"]]
+    steps, custom = components.load(lock, "destination")
+    v = {**variables(lock, ctx, p["vars"]), "package": p["package"]}
+    try:
+        keys = run_layout_steps([f["path"] for f in p["files"]], v, steps, {"params": v, "run_id": v["run_id"]}, custom)
+        bucket = _bucket(dst, v)
+    except PackageError as exc:  # refused before any file is delivered (e.g. a configuration check)
+        _record_failure(lock, ctx, previous["index"], str(exc), refused=True)
+        raise
+    pol = dst.get("delivery") or {}
+    session = None
+    try:
+        with access_errors(f"source {src['name']}"):
+            session = _open_source(lock, ctx)
+            if hasattr(session, "bind"):
+                session.bind(v)
+        s3 = _s3_destination(dst, lock, ctx)
+        results = streaming.deliver(session, p["files"], keys, s3, bucket, pol)
+    except BaseException as exc:
+        _record_failure(lock, ctx, previous["index"], f"{type(exc).__name__}: {exc}")
+        raise
+    finally:
+        if session is not None:
+            session.close()
+    bad = [r for r in results if r["status"] == "failed"]
+    if bad:
+        _record_failure(lock, ctx, previous["index"], f"{len(bad)} of {len(results)} file(s) failed", results)
+        raise PackageError(f"{len(bad)} of {len(results)} file(s) failed delivery, e.g. '{bad[0]['path']}': {bad[0]['detail']}")
+    summary = {"index": previous["index"], "destination": f"s3://{bucket}", "package": p["package"], "files": len(results),
+               "uploaded": sum(r["status"] == "uploaded" for r in results), "skipped_identical": 0,
+               "bytes": sum(r["size"] or 0 for r in results), "statuses": delivery.status_counts(results)}
+    staging.put_json(_url(lock, ctx, f"_run/results/p{previous['index']:04d}.json"), {**summary, "objects": results})
+    log.info("package %s delivered: %s", p["package"], summary)
+    return summary
+
+
+def _s3_destination(dst: dict, lock: dict, ctx: dict):
+    from .sources.s3 import client
+
+    return client(dst.get("connection") or {}, _creds(dst.get("credentials"), lock, ctx))
+
+
 def upload(lock: dict, previous: dict, ctx: dict) -> dict:
     if previous.get("direct"):
         return _upload_direct(lock, previous, ctx)
+    if previous.get("stream"):
+        return _upload_stream(lock, previous, ctx)
     dst = lock["destination"]
     steps, custom = components.load(lock, "destination")
     work = _workdir()
@@ -541,9 +672,102 @@ def _outcome(lock: dict, ctx: dict) -> dict:
     return {"events": events, "plan": plan, "results": results}
 
 
+def _study_rows(lock: dict, ctx: dict, o: dict) -> list[dict]:
+    """Per due Self-Service record: its result by the study rules (pkf_runtime.selfservice.study_result)."""
+    plan = o["plan"]
+    partial = {r["index"]: r for r in staging.list_json(_url(lock, ctx, "_run/failed"))}
+    by_event: dict[str, list[dict]] = {}
+    for p in plan["packages"]:
+        by_event.setdefault(p["event_id"], []).append(p)
+    event_errors: dict[str, str] = {}
+    rejected: dict[str, list[tuple[str, str]]] = {}
+    for f in plan["failed_events"]:
+        if f.get("files"):  # a file refused at planning (bad or duplicate path): a failed file of its study
+            rejected.setdefault(f["event_id"], []).extend(("/" + x["path"].lstrip("/"), f["error"]) for x in f["files"])
+        elif f.get("package") is None:
+            event_errors.setdefault(f["event_id"], f["error"])
+    rows = []
+    for e in o["events"]["events"]:
+        if e.get("error"):
+            continue
+        record = e.get("data") if isinstance(e.get("data"), dict) else {}
+        data = record.get("submission_data") if isinstance(record.get("submission_data"), dict) else {}
+        pks = by_event.get(e["id"], [])
+        file_errors = list(rejected.get(e["id"], []))
+        found = sum(len(p["files"]) for p in pks) + len(file_errors)
+        copied, config_error, upload_error = 0, None, None
+        for p in pks:
+            r = o["results"].get(p["index"])
+            if r is not None:
+                copied += r.get("uploaded", 0)
+                continue
+            f = partial.get(p["index"])
+            if f is None:
+                upload_error = upload_error or "the study's upload did not finish (see the run log)"
+            elif f.get("refused"):
+                config_error = config_error or f["error"]
+            elif isinstance(f.get("objects"), list):
+                for x in f["objects"]:
+                    if x["status"] == "failed":
+                        file_errors.append((x.get("source_path") or x["path"], x.get("detail") or "failed"))
+                    elif x["status"] == "uploaded":
+                        copied += 1
+            else:
+                upload_error = upload_error or f["error"]
+        status, error = selfservice.study_result(listing_error=event_errors.get(e["id"]), files_found=found, config_error=config_error,
+                                                 file_errors=file_errors, copied=copied, upload_error=upload_error)
+        if status != "DONE":
+            status, error = selfservice.failure_count(data, error)
+        rows.append({"event": e, "id": record.get("id"), "data": data, "study_id": selfservice.clean(data.get("studyId")),
+                     "destination": selfservice.clean(data.get("destination")), "files_found": found, "files_copied": copied,
+                     "status": status, "error": error})
+    return rows
+
+
+def _ack_selfservice(lock: dict, ctx: dict, o: dict) -> dict:
+    """Write each due record's result back to the portal (one PUT each). A failed write-back is logged; it never stops
+    the others or fails the run."""
+    recv = components.load(lock, "trigger")[0][0]
+    c = _selfservice(lock, recv["params"], ctx, variables(lock, ctx))
+    now = dt.datetime.now(dt.timezone.utc)
+    studies, written, failed = [], 0, 0
+    for row in _study_rows(lock, ctx, o):
+        line = {k: row[k] for k in ("id", "study_id", "destination", "files_found", "files_copied", "status")}
+        line["error"] = row["error"][:300]
+        if row["id"] is None:
+            log.warning("study %s (%s): the record has no id, so its result is not written back", row["study_id"], row["status"])
+            line["written_back"] = False
+        else:
+            body = selfservice.updated(row["data"], row["status"], row["error"], now, c["prid"], c["name"])
+            try:
+                selfservice.put_submission(c["base_url"], c["form_id"], row["id"], c["api_key"], body,
+                                           verify_tls=c["verify_tls"], ca_bundle=c["ca_bundle"])
+                written += 1
+                line["written_back"] = True
+            except Exception as exc:  # noqa: BLE001 - logged; the other records are still written
+                failed += 1
+                line["written_back"] = False
+                log.error("could not write the result of submission %s back to the Self-Service Portal: %s",
+                          row["id"], f"HTTP {exc.code} {exc.reason}" if hasattr(exc, "code") and hasattr(exc, "reason") else type(exc).__name__)
+        log.info("study: submission %s | %s | %s | files found %s | copied %s | %s | %s", line["id"], line["study_id"],
+                 line["destination"], line["files_found"], line["files_copied"], line["status"], line["error"])
+        studies.append(line)
+    totals: dict[str, int] = {}
+    for line in studies:
+        totals[line["status"]] = totals.get(line["status"], 0) + 1
+    out = {"written_back": written, "write_back_failed": failed, "studies": studies, "totals": dict(sorted(totals.items())),
+           "not_due": dict(sorted((o["events"].get("not_due") or {}).items()))}
+    staging.put_json(_url(lock, ctx, "_run/ack.json"), out)
+    log.info("Self-Service write-back: %s written, %s failed; totals %s; not due %s", written, failed, out["totals"], out["not_due"])
+    return {k: out[k] for k in ("written_back", "write_back_failed", "totals", "not_due")}
+
+
 def ack(lock: dict, ctx: dict) -> dict:
-    """Delete the messages whose packages were all delivered (runs even when some packages failed)."""
+    """Delete the messages whose packages were all delivered (runs even when some packages failed). Self-Service
+    control lists: write each due record's result back to the portal."""
     o = _outcome(lock, ctx)
+    if o["events"] is not None and o["plan"] is not None and o["events"].get("receive") == "selfservice":
+        return _ack_selfservice(lock, ctx, o)
     if o["events"] is None or o["plan"] is None or o["events"].get("receive") != "sqs":
         return {"deleted": 0, "kept": 0}
     bad = {m for e in o["events"]["events"] if e.get("error") for m in e.get("message_ids", [])}
@@ -573,6 +797,11 @@ def report(lock: dict, ctx: dict, keep_staging: bool = False) -> dict:
         raise RunFailed("the run stopped before its packages were planned (see the failed task)")
     if o["events"].get("receive") == "sqs" and staging.get_json(_url(lock, ctx, "_run/ack.json")) is None:
         raise RunFailed("the ack task did not finish: delivered messages were not deleted and will be read again")
+    portal = None
+    if o["events"].get("receive") == "selfservice":  # results are recorded in the portal: failed studies do not fail the run
+        portal = staging.get_json(_url(lock, ctx, "_run/ack.json"))
+        if portal is None and (o["plan"]["packages"] or o["plan"]["failed_events"]):
+            raise RunFailed("the ack task did not finish: the study results were not written back to the Self-Service Portal")
     planned = o["plan"]["packages"]
     failed_pkgs = [_label(p) for p in planned if p["index"] not in o["results"]]
     failed_events = [e for e in o["events"]["events"] if e.get("error")] + o["plan"]["failed_events"]
@@ -596,8 +825,13 @@ def report(lock: dict, ctx: dict, keep_staging: bool = False) -> dict:
         summary["max_packages"] = o["plan"]["max_packages"]
     if o["plan"].get("only"):  # --only (K6): what the preview planned and what changed since
         summary.update({k: o["plan"]["only"][k] for k in ("planned_files", "excluded_since_preview", "missing_since_preview")})
+    if portal is not None or o["events"].get("receive") == "selfservice":
+        portal = portal or {}
+        summary.update(studies=portal.get("studies", []), study_totals=portal.get("totals", {}),
+                       not_due=portal.get("not_due") or o["events"].get("not_due") or {},
+                       written_back=portal.get("written_back", 0), write_back_failed=portal.get("write_back_failed", 0))
     log.info("run summary: %s", json.dumps(summary, sort_keys=True))
-    if failed_pkgs or failed_events:
+    if (failed_pkgs or failed_events) and o["events"].get("receive") != "selfservice":
         err = RunFailed(f"{len(failed_pkgs)} package(s) and {len(failed_events)} event(s) failed; delivered {len(o['results'])} "
                         f"of {len(planned)} (staging kept for inspection): {json.dumps(summary['failed_events'])[:500]}"
                         + (f"; failed packages: {', '.join(failed_pkgs[:5])}" if failed_pkgs else ""))
@@ -631,7 +865,11 @@ def dry_run(lock: dict, ctx: dict, sample: int = 50, *, full: bool = False) -> d
             keys = p.get("keys")
             if keys is None and lock.get("transformation") is None:  # framework upload, files unchanged: keys are known
                 v = {**variables(lock, ctx, p["vars"]), "package": p["package"]}
-                keys = run_layout_steps([f["path"] for f in p["files"]], v, dsteps, {"params": v, "run_id": v["run_id"]}, dcustom)
+                try:
+                    keys = run_layout_steps([f["path"] for f in p["files"]], v, dsteps, {"params": v, "run_id": v["run_id"]}, dcustom)
+                except PackageError as exc:  # this package would be refused before delivery; the others are still shown
+                    plan["failed_events"].append({"event_id": p["event_id"], "package": p["package"], "error": str(exc)})
+                    keys = {}
             for f in p["files"]:
                 k = (keys or {}).get(f["path"]) if keys is not None else "(after transformation)"
                 skey = delivery.source_key(f) if src["type"] == "s3" else f["path"]

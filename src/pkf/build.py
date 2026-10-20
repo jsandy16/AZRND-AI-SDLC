@@ -151,6 +151,8 @@ def lock_for(repo: Repo, name: str, *, allow_unapproved_code: bool = False) -> t
     if any(st["op"] == "custom_delivery" for st in parts["destination"]["steps"]):
         if parts["source"]["spec"].get("type") != "s3" or parts["destination"]["spec"].get("type") != "s3":
             raise PfError("a custom_delivery destination needs an S3 source and an S3 destination", "invalid")
+        if not (parts["destination"]["spec"].get("connection") or {}).get("bucket"):
+            raise PfError("a custom_delivery destination needs one bucket (connection.bucket), not a bucket_map", "invalid")
         if "transformation" in parts:
             raise PfError("a custom_delivery destination copies straight from the source: the pipeline cannot have a transformation", "invalid")
         if p.max_active_runs != 1:
@@ -168,6 +170,17 @@ def lock_for(repo: Repo, name: str, *, allow_unapproved_code: bool = False) -> t
     trigger = {**parts["trigger"]["spec"], "receive": {"op": recv["op"]}}
     if recv["op"] == "sqs" and p.max_active_runs != 1:
         raise PfError("an SQS-triggered pipeline needs max_active_runs: 1 (two runs would work on the same messages)", "invalid")
+    if recv["op"] == "selfservice" and p.max_active_runs != 1:
+        raise PfError("a Self-Service-triggered pipeline needs max_active_runs: 1 (two runs would copy and update the same "
+                      "records twice)", "invalid")
+    dspec = parts["destination"]["spec"]
+    if (dspec.get("delivery") or {}).get("mode") == "stream":
+        if "transformation" in parts:
+            raise PfError("delivery.mode stream copies each file straight from the source: the pipeline cannot have a transformation", "invalid")
+        if parts["source"]["spec"].get("type") not in STREAM_SOURCES:
+            raise PfError(f"delivery.mode stream needs a source that can stream files ({', '.join(STREAM_SOURCES)})", "invalid")
+        if dspec.get("type") != "s3":
+            raise PfError("delivery.mode stream delivers to S3 only", "invalid")
     lock = {
         "lock_version": 2, "framework_version": VERSION, "runtime_version": pkf_runtime.VERSION,
         "pipeline": p.model_dump(mode="json", exclude={"requirement", "examples"}), "connection": c.model_dump(mode="json"),
@@ -178,6 +191,10 @@ def lock_for(repo: Repo, name: str, *, allow_unapproved_code: bool = False) -> t
     }
     lock["lock_sha256"] = lock_digest(lock)  # checked by the runtime when the DAG loads
     return lock, modules
+
+
+STREAM_SOURCES = ("entimice",)
+"""Source types whose adapter can open(root, path) a file as a stream (delivery.mode stream)."""
 
 
 def _py(v) -> str:

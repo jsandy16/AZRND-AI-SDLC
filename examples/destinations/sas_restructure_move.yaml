@@ -1,4 +1,4 @@
-# destination `sas_restructure_move`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every dev-dpl-dstore-sas-eu-north-1-992382551516.
+# destination `sas_restructure_move`: written from the approved split of pipeline `sas_folder_restructure` (@claude-demo). Fill in every <REQUIRED>.
 api_version: pkf/v1
 kind: destination
 name: sas_restructure_move

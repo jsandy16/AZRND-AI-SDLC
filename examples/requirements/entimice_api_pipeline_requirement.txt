@@ -1,0 +1,148 @@
+PURPOSE
+Copy study files from Entimice (a REST document repository) into the data-lake S3 buckets, for the studies that are
+registered in the Self-Service Portal (SSAPI) and are due for a refresh, then write each study's result back to its
+Self-Service Portal record.
+
+TRIGGER
+- Cron schedule "0 6,18 * * *" (06:00 and 18:00 UTC). No events.
+- Each run processes every study that is due at the moment the run starts (see "WHICH STUDIES ARE DUE").
+- Only one run at a time (max active runs 1, no catch-up of missed runs). (New for this pipeline: the current DAG file
+  does not set these, but two overlapping runs would copy and update the same studies twice.)
+
+CONTROL LIST (which studies to process) — Self-Service API
+- GET {SELF_SERVICE_BASE_URL}/api/v1/forms/{FORM_ID}/submissions
+  headers: accept: application/vnd.dpl-selfservice.v1+json, X-API-KEY: <self-service api key>; timeout 60 s.
+- The response must be a JSON list of submission records. Each record has "id" (integer) and "submission_data" with
+  the fields: studyId, location, destination, refreshSchedule, lastTransferStatus, lastTransferAt, error (and other
+  fields that must be preserved untouched).
+- If this call fails (HTTP error, timeout, network error, non-JSON or not a list), the run fails at once, nothing is
+  read from Entimice and nothing is written anywhere.
+- The api key must start with "dpls_", be at least 20 characters and contain no spaces; otherwise the run fails at once.
+
+WHICH STUDIES ARE DUE (one package = one due study)
+Compare text after trimming; refreshSchedule is case-insensitive, lastTransferStatus is case-insensitive.
+"Completed" means lastTransferStatus is DONE or COMPLETED.
+- lastTransferStatus = FAILED_INGESTION_STOPPED → never due (skipped silently, record not updated).
+- refreshSchedule = Once    → due when not completed.
+- refreshSchedule = Daily   → due when not completed, or completed and lastTransferAt is on an earlier calendar day
+                              than today.
+- refreshSchedule = Weekly  → due when not completed, or completed and lastTransferAt is 7 or more calendar days ago.
+- refreshSchedule = Monthly → due when not completed, or completed and lastTransferAt is 30 or more calendar days ago.
+- A completed Daily/Weekly/Monthly study whose lastTransferAt is blank or unreadable is due.
+- Any other or blank refreshSchedule → not due (skipped, record not updated).
+- Days are compared as calendar dates (date part only), in UTC.
+- lastTransferAt may be in any of these formats: "2025-02-18 07:48 AM", "2026-09-30 17:02", "2026-10-01",
+  "4/21/2022 11:36 PM", "03/03/2026 00:31", "4/21/2022 11:36PM".
+- Run parameter force_refresh (default false): when true, completed studies are treated as not completed (so every
+  Once/Daily/Weekly/Monthly study is due); FAILED_INGESTION_STOPPED studies stay skipped.
+
+SOURCE — Entimice REST API (custom: session login, recursive JSON listing, streamed download)
+- Base URL per environment (ENTIMICE_BASE_URL). SSL verification on (VERIFY_SSL, default true).
+- Login: POST {base}/sessions with headers accept: text/plain, username: <user>, password: <password>; timeout 60 s.
+  HTTP 200 → the response body (trimmed, surrounding quotes removed) is the session id; anything else, or an empty
+  body, is a login failure.
+- Accounts: the Entimice account used for a study is chosen by its destination through the per-environment map
+  ENTIMICE_ACCOUNT_BY_DESTINATION (matched case-insensitively after trimming); a destination not in the map (or no
+  map) uses the default account. Log in to every account that has at least one due study BEFORE any study is
+  processed; if any login fails, the run fails and no study is processed or updated.
+- Every session opened is deleted at the end of the run, also when the run fails:
+  DELETE {base}/sessions/{session id} (accept: */*, timeout 60 s); 200 or 204 = deleted; a failed delete is only a
+  warning.
+- Listing (per due study): start at submission_data.location (trimmed) and list recursively:
+  GET {base}/system/children?parent=<path>&filter=webservice::<id>
+  headers accept: application/json, Session-ID: <session id>; timeout 60 s; HTTP 200 → JSON list of nodes.
+  For each node take contentHolders[0].contentProperties: "path" (trimmed) and "isDirectory" ("true"/"false",
+  case-insensitive). Directories are listed again (recursion), anything else is a file.
+  Skip silently a node with no contentHolders or an empty path. Stop descending below 20 levels under the location
+  (deeper folders are skipped with a warning).
+  If any listing call of a study fails (non-200, timeout, network error), the whole study fails with that error and
+  none of its files are copied.
+- File = the full Entimice path returned in contentProperties.path (e.g.
+  "/root/cdar/d000/d0000c00001/ar/csr/adam/dev/data/data_area/adadas.sas7bdat").
+- Download (per file): GET {base}/system?type=file&path=<file path> with headers accept: */*, Session-ID; streamed
+  (never fully in memory), timeout 120 s between received chunks; gzip content-encoding is decoded so the bytes
+  stored are the original file. Non-200 → that file fails. A declared Content-Length of 0 → that file fails with
+  "Entimice returned empty content for file | path=<path>".
+
+TRANSFORMATION
+- None. File content and file names are never changed. Only the location changes.
+
+DESTINATION — S3 (region eu-north-1), bucket chosen per study
+- Bucket = DESTINATION_BUCKET_MAP[submission_data.destination], matched exactly (case-sensitive) after trimming.
+  Map keys: "SAS" and "clinicalstudies".
+- Key layout, where <studyId> is submission_data.studyId trimmed (stray tabs removed) and <path> is the Entimice file
+  path with surrounding spaces and leading "/" removed:
+    destination SAS             → incoming/<studyId>/<path>
+    destination clinicalstudies → <studyId>/ongoing/<path>
+    any other mapped destination → <studyId>/<path>
+- Upload streamed as a multipart upload (16 MiB parts, up to 8 parallel parts; files of any size, at least up to
+  160 GiB). Content-Type by extension: .sas7bdat application/octet-stream, .pdf application/pdf, .xml
+  application/xml, .xls application/vnd.ms-excel, .xlsx application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,
+  .csv text/csv, .txt text/plain, anything else application/octet-stream.
+- An existing object at the same key is overwritten. No tags are written. Encryption = the bucket default.
+- After each upload read the object size back (HEAD); when Entimice declared a Content-Length and the sizes differ,
+  that file fails with "S3 upload size mismatch | key=<key> | source=<n> | target=<m>".
+- One file failing never stops the other files of the study; one study failing never stops the other studies.
+
+STUDY RESULT (decided per due study, in this order — the first rule that applies wins)
+1. The listing failed                         → FAILED, error = "<listing error> | Reason: <reason>"
+2. The listing found no files                 → FAILED, error = "Empty data from the Entimice API. | Reason: No data available issue"
+3. destination blank                          → FAILED, error = "Destination is blank — enter the destination in the
+                                                Self-Service Portal. | Reason: Configuration issue"
+   destination not in DESTINATION_BUCKET_MAP  → FAILED, error = "Unknown destination '<value>' — cannot resolve S3
+                                                bucket. | Reason: Configuration issue"
+   studyId blank                              → FAILED, error = "Missing studyId in submission_data — cannot build S3
+                                                key. | Reason: Configuration issue"
+   (in these three cases no file is copied)
+4. At least one file failed                   → FAILED, error = "S3 upload failed for <n> file(s): <path> | Reason:
+                                                <reason>, <path> | Reason: <reason>, …" (one entry per failed file)
+5. No file was copied                         → FAILED, error = "Files were found in Entimice but none was uploaded to
+                                                S3. | Reason: Other issue"
+6. Otherwise (every file copied)              → DONE, error = ""
+A missing location gives FAILED with "Missing location in submission_data | Reason: Other issue".
+<reason> is chosen from the error text (case-insensitive), first match wins:
+  contains 403 / forbidden / denied / unauthor            → Access issue
+  contains 404 / does not exist / not found / could not resolve → File missing issue
+  contains empty content / corrupt / unreadable          → File corrupt issue
+  contains empty data / no data                          → No data available issue
+  contains timed out / timeout                           → Timeout issue
+  contains destination / studyid                         → Configuration issue
+  anything else                                          → Other issue
+
+CONSECUTIVE-FAILURE LIMIT (state is kept only in the portal record's error text)
+- Limits: Once 10 failed runs in a row, Daily 15; Weekly and Monthly have no limit.
+- Previous count = the number in "Consecutive failed runs: <n>" in the record's error text, but only when the record's
+  lastTransferStatus is FAILED; otherwise 0. The count also restarts at 0 when the error text contains "so disabling
+  the trigger for this study" or the stored count already reached the limit (a user re-enabled the study).
+- When a study with a limit fails: count = previous count + 1, error = "<error> | Consecutive failed runs: <count> of
+  <limit>". When count reaches the limit: status = FAILED_INGESTION_STOPPED and error gets
+  " | Study is failing for last <limit> runs so disabling the trigger for this study" appended.
+
+WRITE-BACK TO THE SELF-SERVICE PORTAL (after all due studies are processed; one call per due study)
+- PUT {SELF_SERVICE_BASE_URL}/api/v1/forms/{FORM_ID}/submissions/{id}
+  headers accept: application/vnd.dpl-selfservice.v1+json, X-API-KEY, Content-Type: application/json; timeout 60 s.
+- Body: {"submission_data": <the record's original submission_data with only these fields changed>}
+    modifiedAt          = now
+    lastTransferAt      = now when the result is DONE; unchanged otherwise
+    lastTransferStatus  = DONE | FAILED | FAILED_INGESTION_STOPPED
+    error               = the error text above ("" when DONE)
+    modifiedByPrid      = SERVICE_USER_PRID
+    modifiedByFullName  = SERVICE_USER_NAME
+  Dates are written as "%Y-%m-%d %I:%M %p", e.g. "2026-10-20 06:02 AM" (UTC).
+- Studies that were not due are not updated.
+- A failed write-back of one study is logged and does not stop the others; it does not fail the run.
+- Record without an id → not updated (logged).
+
+RUN OUTCOME
+- The run fails when: the control-list call fails, an Entimice login fails, or an unexpected error happens outside a
+  single study. Sessions are still deleted.
+- Otherwise the run succeeds, even when studies end FAILED (their failure is recorded in the portal).
+- When no study is due the run succeeds without touching Entimice or S3. (The current code still logs in and out of
+  Entimice in that case; the new pipeline does not need to.)
+- Report one line per due study: submission id, studyId, destination, files found, files copied, result status,
+  error (first 300 characters); plus totals per status and the number of studies not due per reason.
+
+SECRETS (Vault, per environment)
+- Default account secret (ENTIMICE_SECRET, "entimice"): entimice_username, entimice_password, self_service_api_key.
+- Extra account secrets (values of ENTIMICE_ACCOUNT_BY_DESTINATION): entimice_username, entimice_password.
+- Never log passwords, the api key or the session id.

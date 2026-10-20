@@ -1,0 +1,38 @@
+# source `entimice_studies`: every file under each due study's Entimice location (requirements/entimice_api_pipeline_requirement.txt).
+# connection.base_url and accounts are per environment (ENTIMICE_BASE_URL, ENTIMICE_ACCOUNT_BY_DESTINATION); the local
+# values are the stand-ins of dryrun/entimice_servers.py.
+api_version: pkf/v1
+kind: source
+name: entimice_studies
+description: Entimice files of one study, listed recursively from its location
+type: entimice
+connection:
+  base_url: http://127.0.0.1:18080        # ENTIMICE_BASE_URL
+  verify_tls: true                         # VERIFY_SSL
+  account_by: '{study_destination}'
+  accounts:                                # ENTIMICE_ACCOUNT_BY_DESTINATION: destination → Vault secret of that account
+    clinicalstudies: entimice_clinicalstudies
+credentials:
+  provider: vault
+  ref: entimice                            # ENTIMICE_SECRET: the default account
+  vault_mount: secret
+  fields: {username: entimice_username, password: entimice_password}
+steps:
+  - id: list_location
+    op: list
+    title: Every file under the study's location (20 levels at most); package paths are the full Entimice paths
+    params: {root: '{study_location}', recursive: true, max_depth: 20, keep_root: true,
+             blank_root: Missing location in submission_data}
+examples:
+  - name: full_paths_kept
+    event: {vars: {study_location: ' /root/cdar/d000/d0000c00001/ar '}}
+    listing:
+      - root/cdar/d000/d0000c00001/ar/csr/adam/dev/data/data_area/adadas.sas7bdat:100
+      - root/cdar/d000/d0000c00001/ar/define.xml:20
+      - root/cdar/d000/other/x.txt:5
+    expected_packages:
+      - [root/cdar/d000/d0000c00001/ar/csr/adam/dev/data/data_area/adadas.sas7bdat, root/cdar/d000/d0000c00001/ar/define.xml]
+  - name: missing_location
+    event: {vars: {study_location: ''}}
+    listing: [root/a.txt:1]
+    expect_error: true

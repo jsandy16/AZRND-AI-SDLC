@@ -1,0 +1,6 @@
+api_version: pkf/v1
+kind: connection
+name: entimice_api_connection
+source: entimice_studies
+destination: entimice_datalake
+check_before_run: false   # no study due → the run touches neither Entimice nor S3
