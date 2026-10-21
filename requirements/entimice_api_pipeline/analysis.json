@@ -1,0 +1,25 @@
+{
+  "pipeline": "entimice_api_pipeline",
+  "source_file": "entimice_api_pipeline_requirement.txt",
+  "assumptions": [
+    "Example listings show the Entimice path without leading '/' (the key rule removes it anyway); the listing is described as paths relative to the Entimice root.",
+    "Examples assume the study's submission_data (studyId S100/S200/S300, destination SAS/clinicalstudies/other mapped/unmapped) is supplied by the Self-Service stub; the run date does not appear in keys.",
+    "Studies failing for configuration reasons still make the run succeed; the failure is written back to the portal.",
+    "'Now' for write-back and due comparison is the run start time in UTC; lastTransferAt for DONE uses write-back time.",
+    "force_refresh also applies to Once studies that are completed."
+  ],
+  "open_questions": [
+    "For the consecutive-failure counter, should a study whose stored count already reached the limit but whose status is not FAILED_INGESTION_STOPPED restart at 1 (as 'count restarts at 0') \u2014 and is that intended given such a record would have been stopped? Confirm the intended behaviour.",
+    "When a due study fails only because its Entimice account login map has no match, is falling back to the default account intended even for destinations that are unknown (those later fail as 'Unknown destination')? Confirm."
+  ],
+  "requirement_sha256": "a1ea76e1da9257ea4b0169909cc96cfa245cc588f984cf16225db74d8dd75372",
+  "analyzed_by": {
+    "task": "analyze_requirements",
+    "skill": "finalizing-pipeline-requirements",
+    "skill_sha256": "82e673c92eefcdae59942ddefb6885846afe58ed3f2e6557a714a317c850c9d9",
+    "prompt_sha256": "efedc9655930e74a38aa7dc3a282d17371e1ee9dfb8a7efaa8ffa1d2ae71de07",
+    "schema_sha256": "f86b7e05f51f9699e269809029e3fdb816ab038c1a8a284692148d723528e8b2",
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "1"
+  }
+}
