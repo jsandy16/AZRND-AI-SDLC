@@ -1,0 +1,10 @@
+# pkf Studio project (read from the base branch only). Studio 0.8.2
+mode: dev
+base_branch: main
+github_api: https://api.github.com
+aws_account_id: '992382551516'
+aws_region: eu-north-1
+tags: {}
+terraform_backend: {}
+code_owners:
+- '@jsandy16'
