@@ -1,0 +1,11 @@
+# pkf Studio team roster (read from the base branch only)
+people:
+- name: sandeep jaguri
+  email: mesagar8296@gmail.com
+  roles:
+  - product_owner
+  - business_analyst
+  - architect
+  - data_engineer
+  github: jsandy16
+  github_id: 195818633

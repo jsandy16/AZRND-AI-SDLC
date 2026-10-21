@@ -4,3 +4,17 @@ __pycache__/
 *.pyc
 *.egg-info/
 **/.llm/
+
+# pkf Studio (local state)
+.pkf-studio/local.yaml
+.pkf-studio/jobs/
+.pkf-studio/worktrees/
+.pkf-studio/drafts/
+.pkf-studio/locks/
+.pkf-studio/terraform/
+.pkf-studio/cache/
+.pkf-studio/flows/
+*.tfplan
+.terraform/
+*/.llm/
+local-secrets/
