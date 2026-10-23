@@ -1,0 +1,53 @@
+{
+  "cost_usd": 0.878986,
+  "data": {
+    "assumptions": [],
+    "lanes": {
+      "dlp": {
+        "coverage": null,
+        "deferred": [],
+        "status": "ok",
+        "tests": {
+          "errors": 0,
+          "failed": 0,
+          "passed": 7,
+          "skipped": 0
+        },
+        "verdicts": []
+      },
+      "sep": {
+        "coverage": null,
+        "deferred": [],
+        "status": "ok",
+        "tests": {
+          "errors": 0,
+          "failed": 0,
+          "passed": 5,
+          "skipped": 0
+        },
+        "verdicts": []
+      },
+      "trn": {
+        "coverage": null,
+        "deferred": [],
+        "status": "ok",
+        "tests": {
+          "errors": 0,
+          "failed": 0,
+          "passed": 7,
+          "skipped": 0
+        },
+        "verdicts": []
+      }
+    },
+    "name": "code tasks"
+  },
+  "ended_at": "2026-10-23T11:32:02+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "5ae99ebb990c135967040c9b628a26e11e88e29d84522cec3a50b3a29ea194a7",
+  "issues": [],
+  "run_id": "r-20261023-112825-e396",
+  "stage": "S2",
+  "started_at": "2026-10-23T11:28:30+00:00",
+  "status": "ok"
+}

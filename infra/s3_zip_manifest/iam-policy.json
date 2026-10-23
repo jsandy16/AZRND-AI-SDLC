@@ -1,0 +1,159 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "List",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516",
+        "arn:aws:s3:::incoming/",
+        "arn:aws:s3:::index/s3_zip_manifest/",
+        "arn:aws:s3:::outgoing/",
+        "arn:aws:s3:::processing/",
+        "arn:aws:s3:::reports/s3_zip_manifest/",
+        "arn:aws:s3:::staging_test/"
+      ]
+    },
+    {
+      "Sid": "Objects1",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CopyObject",
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:HeadObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516/*"
+      ]
+    },
+    {
+      "Sid": "Objects2",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516/incoming/*"
+      ]
+    },
+    {
+      "Sid": "Objects3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516/index/*"
+      ]
+    },
+    {
+      "Sid": "Objects4",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516/outgoing/*"
+      ]
+    },
+    {
+      "Sid": "Objects5",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516/processing/*"
+      ]
+    },
+    {
+      "Sid": "Objects6",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::dev-dpl-dstore-sas-eu-north-1-992382551516/staging_test/*"
+      ]
+    },
+    {
+      "Sid": "Objects7",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::incoming//incoming/*"
+      ]
+    },
+    {
+      "Sid": "Objects8",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::index/s3_zip_manifest//index/s3_zip_manifest/*"
+      ]
+    },
+    {
+      "Sid": "Objects9",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::outgoing//outgoing/*"
+      ]
+    },
+    {
+      "Sid": "Objects10",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::processing//processing/*"
+      ]
+    },
+    {
+      "Sid": "Objects11",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::reports/s3_zip_manifest//reports/s3_zip_manifest/*"
+      ]
+    },
+    {
+      "Sid": "Objects12",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::staging_test//staging_test/*"
+      ]
+    }
+  ]
+}

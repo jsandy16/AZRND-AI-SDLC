@@ -1,0 +1,27 @@
+{
+  "cost_usd": 0.0,
+  "data": {
+    "assumptions": [],
+    "failed": 0,
+    "fixes": [],
+    "integrator_rounds": 0,
+    "name": "integrate components",
+    "passed": 5,
+    "written": [
+      "dags/pkf_pipelines/s3_zip_manifest/pipeline_raw.py",
+      "dags/pkf_pipelines/s3_zip_manifest/settings/dev.yaml",
+      "dags/pkf_pipelines/s3_zip_manifest/settings/test.yaml",
+      "dags/pkf_pipelines/s3_zip_manifest/settings/prod.yaml",
+      "tests/s3_zip_manifest/pipeline/test_pipeline.py",
+      "tests/s3_zip_manifest/pipeline/examples.yaml"
+    ]
+  },
+  "ended_at": "2026-10-23T11:32:18+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "3082ce0eef5648fb53dfc357cde18c55d8e0f917816f68be66de36c95921a293",
+  "issues": [],
+  "run_id": "r-20261023-112825-e396",
+  "stage": "S3",
+  "started_at": "2026-10-23T11:32:02+00:00",
+  "status": "ok"
+}

@@ -1,0 +1,31 @@
+{
+  "cost_usd": 0.0,
+  "data": {
+    "assumptions": [],
+    "dag_id": "s3_zip_manifest",
+    "dag_test": "not run: Airflow is not installed here (run it on Linux / Kali / CI)",
+    "name": "create DAG",
+    "written": [
+      "dags/pkf_s3_zip_manifest.py",
+      "tests/s3_zip_manifest/dag/test_dag.py",
+      ".github/workflows/pkf.yml",
+      "dags/.airflowignore"
+    ]
+  },
+  "ended_at": "2026-10-23T11:32:19+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "a13a65b52e3fc999ab1612ff372cfe3dce1b073105f58306ae72d61611e2a04a",
+  "issues": [
+    {
+      "code": "no_airflow",
+      "file": "tests/s3_zip_manifest/dag",
+      "loc": "",
+      "msg": "Airflow is not installed here: the DAG's structure was checked and its tasks ran in DAG order through the pkf DAG runner (S3); dag.test() runs in CI, or set PKF_AIRFLOW_PYTHON to a Python with Airflow",
+      "severity": "warning"
+    }
+  ],
+  "run_id": "r-20261023-112825-e396",
+  "stage": "S4",
+  "started_at": "2026-10-23T11:32:18+00:00",
+  "status": "ok"
+}

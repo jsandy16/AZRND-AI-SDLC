@@ -1,0 +1,37 @@
+{
+  "cost_usd": 0.0,
+  "data": {
+    "assumptions": [],
+    "drafted": false,
+    "name": "parse the requirement",
+    "settings": [
+      "aws_account",
+      "region",
+      "source_bucket",
+      "target_bucket",
+      "incoming_prefix",
+      "processing_prefix",
+      "staging_prefix",
+      "outgoing_prefix",
+      "queue_url",
+      "aws_conn_id"
+    ],
+    "trigger": "sqs",
+    "units": [
+      "SEP-1",
+      "SEP-2",
+      "TRN-1",
+      "TRN-2",
+      "DLP-1",
+      "DLP-2"
+    ]
+  },
+  "ended_at": "2026-10-23T11:03:38+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "245048f5f1691ba56b48e89417a03339ada710d253c207bf48e884208ee2fd12",
+  "issues": [],
+  "run_id": "r-20261023-110330-2642",
+  "stage": "S0.5",
+  "started_at": "2026-10-23T11:03:37+00:00",
+  "status": "ok"
+}

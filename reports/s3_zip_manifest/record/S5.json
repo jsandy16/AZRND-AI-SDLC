@@ -1,0 +1,24 @@
+{
+  "cost_usd": 0.0,
+  "data": {
+    "assumptions": [],
+    "name": "run DAG",
+    "reason": "dev run failed; going on was approved"
+  },
+  "ended_at": "2026-10-23T14:56:23+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "b6e564e6462fed4e3aba754b32507f1e4c19ba30710aa7d21a60020608bf5595",
+  "issues": [
+    {
+      "code": "dev_run_failed_continued",
+      "file": "",
+      "loc": "",
+      "msg": "the dev run failed; you approved going on to the pull request",
+      "severity": "warning"
+    }
+  ],
+  "run_id": "r-20261023-145609-96ad",
+  "stage": "S5",
+  "started_at": "2026-10-23T14:56:22+00:00",
+  "status": "skipped"
+}

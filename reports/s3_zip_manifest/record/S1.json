@@ -1,0 +1,43 @@
+{
+  "cost_usd": 0.0,
+  "data": {
+    "assumptions": [],
+    "examples": [
+      "happy_path_study_a",
+      "replayed_message_source_gone",
+      "zip_with_root_manifest_fails",
+      "outgoing_collision_not_overwritten"
+    ],
+    "name": "finalise requirements",
+    "questions_answered": [
+      "Q-ENV-alert_email",
+      "Q-SEP-1-1",
+      "Q-TRG-1",
+      "SUG-1",
+      "SUG-2",
+      "SUG-3",
+      "SUG-4",
+      "SUG-5",
+      "SUG-6",
+      "SUG-7"
+    ],
+    "reused": true,
+    "round": 2,
+    "units": [
+      "SEP-1",
+      "SEP-2",
+      "TRN-1",
+      "TRN-2",
+      "DLP-1",
+      "DLP-2"
+    ]
+  },
+  "ended_at": "2026-10-23T11:25:50+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "c673e2fe346e7e0c11b903c483bccf25615b0f85578e35aa818b33f80f2e947a",
+  "issues": [],
+  "run_id": "r-20261023-112541-2cd9",
+  "stage": "S1",
+  "started_at": "2026-10-23T11:25:49+00:00",
+  "status": "ok"
+}

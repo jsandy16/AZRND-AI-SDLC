@@ -1,0 +1,6 @@
+{
+ "flow": "0.10",
+ "assume_all": false,
+ "review_tests": true,
+ "run_mode": "local"
+}

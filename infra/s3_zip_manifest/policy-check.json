@@ -1,0 +1,25 @@
+{
+  "simulate": {
+    "checked": 37,
+    "denied": [
+      "s3:ListBucket on arn:aws:s3:::incoming/: implicitDeny",
+      "s3:ListBucket on arn:aws:s3:::index/s3_zip_manifest/: implicitDeny",
+      "s3:ListBucket on arn:aws:s3:::outgoing/: implicitDeny",
+      "s3:ListBucket on arn:aws:s3:::processing/: implicitDeny",
+      "s3:ListBucket on arn:aws:s3:::reports/s3_zip_manifest/: implicitDeny",
+      "s3:ListBucket on arn:aws:s3:::staging_test/: implicitDeny"
+    ]
+  },
+  "validate": [
+    {
+      "detail": "The action s3:CopyObject does not exist. You need permissions to the following actions to successfully use the API called CopyObject - s3:GetObject, s3:PutObject.",
+      "issue": "INVALID_ACTION",
+      "type": "ERROR"
+    },
+    {
+      "detail": "The action s3:HeadObject does not exist. Did you mean s3:GetObject? The API called HeadObject authorizes against the IAM action s3:GetObject.",
+      "issue": "INVALID_ACTION",
+      "type": "ERROR"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "cost_usd": 0.0,
+  "data": {
+    "assumptions": [],
+    "branch": "pkf/s3_zip_manifest",
+    "commits": [
+      {
+        "message": "s3_zip_manifest: S1 finalised requirement, contracts, traces, pseudocode",
+        "sha": "e337b3453eda7dbace89285c135bd9470779e08f",
+        "stage": "S1"
+      },
+      {
+        "message": "s3_zip_manifest: S2 unit tasks of SEP / TRN / DLP with their tests",
+        "sha": "0e1eb72eb06a1657c568d6f54461efe6614ed5f5",
+        "stage": "S2"
+      },
+      {
+        "message": "s3_zip_manifest: S3 pipeline_raw.py and end-to-end examples",
+        "sha": "d33edf43768da540d82c0dff0be835651c114031",
+        "stage": "S3"
+      },
+      {
+        "message": "s3_zip_manifest: S4 Airflow DAG",
+        "sha": "0706eeb29d8d364ca747db2ba8bfd4d13a66cf43",
+        "stage": "S4"
+      },
+      {
+        "message": "s3_zip_manifest: S5 infra and dev run",
+        "sha": "f189e145664845c2a780b604509b7bda0e460e59",
+        "stage": "S5"
+      },
+      {
+        "message": "pkf s3_zip_manifest: generated files",
+        "sha": "28d904ca9abb926640912bff4410ef7eacdbcba5",
+        "stage": "files"
+      }
+    ],
+    "name": "pull request",
+    "pr": null,
+    "pushed": false,
+    "reason": "could not push or open the pull request: git push -q -u\u2026: To https://github.com/jsandy16/AZRND-AI-SDLC.git\n ! [remote rejected] pkf/s3_zip_manifest -> pkf/s3_zip_manifest (refusing to allow a Personal Access Token to create or update workflow `.github/workflows/pkf.yml` without `workflow` scope)\nerror: failed to push some refs to 'https://github.com/jsandy16/AZRND-AI-SDLC.git'",
+    "settings": ".pkf-studio/project.yaml"
+  },
+  "ended_at": "2026-10-23T13:13:07+00:00",
+  "flow": "0.10",
+  "inputs_sha256": "67b21c2ffbcc36c2fc69c819e36a80def863b720f67f3ce533b5c2633253a29c",
+  "issues": [
+    {
+      "code": "pr_publish",
+      "file": "",
+      "loc": "",
+      "msg": "git push -q -u\u2026: To https://github.com/jsandy16/AZRND-AI-SDLC.git\n ! [remote rejected] pkf/s3_zip_manifest -> pkf/s3_zip_manifest (refusing to allow a Personal Access Token to create or update workflow `.github/workflows/pkf.yml` without `workflow` scope)\nerror: failed to push some refs to 'https://github.com/jsandy16/AZRND-AI-SDLC.git'",
+      "severity": "error"
+    }
+  ],
+  "run_id": "r-20261023-131208-73f8",
+  "stage": "S6",
+  "started_at": "2026-10-23T13:12:17+00:00",
+  "status": "failed"
+}
