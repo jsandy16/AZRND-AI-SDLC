@@ -1,0 +1,4 @@
+- Signatures of seed_boundary, ctx_from_trace, make_ctx and zip_bytes are not given, so the tests seed moto with boto3 through rt.s3() and build PackageContext directly.
+- The pseudocode reads vars.source_key, but the expected trace for TRN-2 does not list source_key in vars. The tests assume it is set.
+- Tests assume verified_copy carries the staging metadata (pkf-source-key and pkf-source-sha256) to the outgoing object, which R-DLP-1-b needs. The kit text does not say so.
+- The tests assume ctx.source accepts a dict, and that the settings are not prefixed by a test_root.

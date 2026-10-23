@@ -1,0 +1,4 @@
+- I built contexts and buckets directly (PackageContext, rt.s3()) instead of seed_boundary/ctx_from_trace because their signatures are not given. The tests assume zip_bytes(dict) returns bytes.
+- The function names trn_1_build_the_manifest and trn_2_upload_to_staging are called from module pkf_pipelines.s3_zip_manifest.trn, as the request says.
+- Examples outgoing_collision_not_overwritten and replayed_message_source_gone belong to the SEP and DLP lanes, so the TRN component test does not cover them.
+- The request does not say whether artefacts.new_zip_path is absent or empty when vars.staged is set. The test only checks that it is absent, as the TRN-1 contract says.

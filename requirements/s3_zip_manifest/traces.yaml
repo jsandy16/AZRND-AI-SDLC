@@ -1,0 +1,108 @@
+- example: happy_path_study_a
+  after: SEP-0
+  ctx:
+    name: study_a.zip
+    source:
+      bucket: dev-dpl-dstore-sas-eu-north-1-992382551516
+      key: incoming/study_a.zip
+      event_time: '2026-10-22T10:00:00Z'
+    vars:
+      package_ts: 20261022T100000Z
+      stem: study_a
+      ext: .zip
+    artefacts: {}
+    status: ok
+  s3_keys:
+  - source_bucket:incoming/study_a.zip
+- example: happy_path_study_a
+  after: SEP-1
+  ctx:
+    name: study_a.zip
+    vars:
+      package_ts: 20261022T100000Z
+      stem: study_a
+      ext: .zip
+      source_sha256: <sha256 of incoming/study_a.zip>
+      source_key: incoming/study_a.zip
+      source_key_hash: <sha1('incoming/study_a.zip')[:12]>
+    artefacts:
+      renamed_key: processing/study_a_20261022T100000Z.zip
+    status: ok
+  s3_keys:
+  - source_bucket:incoming/study_a.zip
+  - source_bucket:processing/study_a_20261022T100000Z.zip
+- example: happy_path_study_a
+  after: SEP-2
+  ctx:
+    name: study_a.zip
+    vars:
+      package_ts: 20261022T100000Z
+      stem: study_a
+      source_sha256: <sha256>
+      source_key: incoming/study_a.zip
+      source_key_hash: <h12>
+    artefacts:
+      renamed_key: processing/study_a_20261022T100000Z.zip
+    status: ok
+  s3_keys:
+  - source_bucket:processing/study_a_20261022T100000Z.zip
+- example: happy_path_study_a
+  after: TRN-1
+  ctx:
+    name: study_a.zip
+    vars:
+      package_ts: 20261022T100000Z
+      stem: study_a
+      source_sha256: <sha256>
+      source_key_hash: <h12>
+      manifest_rows: 2
+    artefacts:
+      renamed_key: processing/study_a_20261022T100000Z.zip
+      new_zip_path: <shared_dir>/out.zip
+    status: ok
+  s3_keys:
+  - source_bucket:processing/study_a_20261022T100000Z.zip
+- example: happy_path_study_a
+  after: TRN-2
+  ctx:
+    name: study_a.zip
+    vars:
+      package_ts: 20261022T100000Z
+      stem: study_a
+      source_sha256: <sha256>
+      source_key_hash: <h12>
+      manifest_rows: 2
+    artefacts:
+      renamed_key: processing/study_a_20261022T100000Z.zip
+      new_zip_path: <shared_dir>/out.zip
+      staging_key: staging_test/study_a_20261022T100000Z.zip
+    status: ok
+  s3_keys:
+  - source_bucket:processing/study_a_20261022T100000Z.zip
+  - target_bucket:staging_test/study_a_20261022T100000Z.zip
+- example: happy_path_study_a
+  after: DLP-1
+  ctx:
+    name: study_a.zip
+    artefacts:
+      renamed_key: processing/study_a_20261022T100000Z.zip
+      staging_key: staging_test/study_a_20261022T100000Z.zip
+      outgoing_key: outgoing/20261022T100000Z_study_a.zip
+      index_key: index/s3_zip_manifest/study_a/<sha256>_<h12>.json
+    status: ok
+  s3_keys:
+  - source_bucket:processing/study_a_20261022T100000Z.zip
+  - target_bucket:staging_test/study_a_20261022T100000Z.zip
+  - target_bucket:outgoing/20261022T100000Z_study_a.zip
+  - target_bucket:index/s3_zip_manifest/study_a/<sha256>_<h12>.json
+- example: happy_path_study_a
+  after: DLP-2
+  ctx:
+    name: study_a.zip
+    artefacts:
+      outgoing_key: outgoing/20261022T100000Z_study_a.zip
+      index_key: index/s3_zip_manifest/study_a/<sha256>_<h12>.json
+    status: ok
+  s3_keys:
+  - target_bucket:outgoing/20261022T100000Z_study_a.zip
+  - target_bucket:index/s3_zip_manifest/study_a/<sha256>_<h12>.json

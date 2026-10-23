@@ -1,0 +1,151 @@
+import hashlib
+import json
+from typing import Any
+
+from pkf_runtime.kit import PackageContext, Runtime, unit_task, s3 as s3k
+from pkf_runtime.kit.naming import check_key, render
+
+
+def source_key_hash(key: str) -> str:
+    """Return a stable short hash of the source key for the index name.
+
+    Args:
+        key: The source object key.
+
+    Returns:
+        The first 12 hex characters of sha1(key) (a name, not a security hash).
+    """
+    return hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+
+
+def index_key(rt: Runtime, stem: str, sha: str, key_hash: str) -> str:
+    """Render the delivery index key.
+
+    Args:
+        rt: The runtime (for index_prefix).
+        stem: The package stem.
+        sha: The source sha256.
+        key_hash: The source key hash.
+
+    Returns:
+        The checked index object key.
+    """
+    return check_key(render("{index_prefix}{stem}/{sha}_{h}.json",
+                            index_prefix=rt.settings["index_prefix"], stem=stem, sha=sha, h=key_hash))
+
+
+def _meta(h: dict[str, Any]) -> dict[str, Any]:
+    """Return the user metadata of a head result.
+
+    Args:
+        h: The dict returned by s3.head.
+
+    Returns:
+        The metadata mapping (empty when absent).
+    """
+    return h.get("metadata") or h.get("Metadata") or {}
+
+
+def _set_handover(ctx: PackageContext, sha: str, kh: str, src_k: str, proc_key: str) -> None:
+    """Store the SEP-1 hand-over values on the context.
+
+    Args:
+        ctx: The package context.
+        sha: The source sha256.
+        kh: The source key hash.
+        src_k: The source key.
+        proc_key: The processing copy key.
+    """
+    ctx.vars.update(source_sha256=sha, source_key_hash=kh, source_key=src_k)
+    ctx.artefacts["renamed_key"] = proc_key
+
+
+def _delivered_outgoing(client: Any, rt: Runtime, ik: str, src_k: str, sha: str) -> str | None:
+    """Return the outgoing key of a verified earlier delivery, else None (R-SEP-1-c).
+
+    Args:
+        client: The S3 client.
+        rt: The runtime.
+        ik: The index object key.
+        src_k: The current source key.
+        sha: The current source sha256.
+
+    Returns:
+        The outgoing key when the earlier delivery is verified, else None.
+    """
+    tb = rt.settings["target_bucket"]
+    if s3k.head(client, tb, ik) is None:
+        return None
+    path = s3k.download(client, tb, ik, rt.tmpdir() / "index.json")
+    idx = json.loads(path.read_text(encoding="utf-8"))
+    if idx.get("source_key") != src_k:
+        return None
+    oh = s3k.head(client, tb, idx["outgoing_key"])
+    if oh and _meta(oh).get("pkf-source-sha256") == sha:
+        return idx["outgoing_key"]
+    return None
+
+
+def _resume_or_skip(ctx: PackageContext, rt: Runtime, client: Any, proc_key: str, kh: str) -> PackageContext:
+    """Handle a source that is gone: resume from the processing copy or skip (R-SEP-1-d).
+
+    Args:
+        ctx: The package context.
+        rt: The runtime.
+        client: The S3 client.
+        proc_key: The processing copy key.
+        kh: The source key hash.
+
+    Returns:
+        The updated context.
+    """
+    sb = rt.settings["source_bucket"]
+    if s3k.head(client, sb, proc_key) is not None:
+        sha = s3k.sha256_of(client, sb, proc_key)
+        _set_handover(ctx, sha, kh, ctx.source.key, proc_key)
+        rt.log.info("resume: source %s gone, using processing copy %s", ctx.source.key, proc_key)
+        return ctx
+    rt.log.warning("source gone, nothing to resume: %s", ctx.source.key)
+    ctx.status = "skipped"
+    return ctx
+
+
+@unit_task("SEP-1")
+def sep_1_copy_and_rename_the_package(ctx: PackageContext, rt: Runtime) -> PackageContext:
+    """SEP-1: copy the package to processing/ under its timestamped name (R-SEP-1-a..e).
+
+    Args:
+        ctx: The package context.
+        rt: The runtime.
+
+    Returns:
+        The updated context (status ok or skipped).
+
+    Raises:
+        DataError: When a different processing copy already exists.
+    """
+    client = rt.s3()
+    src_b, src_k = ctx.source.bucket, ctx.source.key
+    stem, ts = ctx.vars["stem"], ctx.vars["package_ts"]
+    proc_key = check_key(f"{rt.settings['processing_prefix']}{stem}_{ts}.zip")
+    kh = source_key_hash(src_k)
+    h = s3k.head(client, src_b, src_k)
+    if h is None:
+        return _resume_or_skip(ctx, rt, client, proc_key, kh)
+    size = h.get("size", h.get("ContentLength"))
+    if ctx.source.size is not None and size != ctx.source.size:
+        rt.log.warning("source size %s differs from event size %s; processing current version",
+                       size, ctx.source.size)
+    sha = s3k.sha256_of(client, src_b, src_k)
+    out = _delivered_outgoing(client, rt, index_key(rt, stem, sha, kh), src_k, sha)
+    if out:
+        s3k.delete(client, src_b, src_k, missing_ok=True)
+        rt.log.info("already delivered as %s; deleted original %s", out, src_k)
+        ctx.status = "skipped"
+        ctx.vars["already_delivered"] = out
+        return ctx
+    s3k.verified_copy(client, src_b, src_k, rt.settings["source_bucket"], proc_key,
+                      if_exists="skip_identical")
+    rt.log.info("copied %s/%s → %s", src_b, src_k, proc_key)
+    _set_handover(ctx, sha, kh, src_k, proc_key)
+    return ctx

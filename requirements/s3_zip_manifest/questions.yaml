@@ -1,0 +1,30 @@
+questions:
+- id: Q-ENV-alert_email
+  section: Environment details
+  blocking: true
+  text: What is the dev value of the setting `alert_email`?
+  reason: data-engineering team e-mail address for alerts; the dev run and the DAG need a value. Secrets only by reference
+    (an Airflow connection id or a secret name).
+  proposal: none (leave it empty in dev)
+  options: []
+suggestions:
+- id: SUG-5
+  section: SEP-2
+  text: The bucket is versioned. If the same key is uploaded again between SEP-1 and SEP-2, a plain DeleteObject puts a delete
+    marker on top of the NEW version, so a fresh upload disappears until someone notices. The second event then finds the
+    source gone and is skipped.
+  proposal: 'SEP-1 stores the source VersionId from HeadObject in vars.source_version_id. SEP-2 becomes custom code: head
+    the source and delete only when the current VersionId equals vars.source_version_id (DeleteObject with that VersionId).
+    Otherwise it leaves the object alone and logs a WARNING (the new upload has its own event). The uses: s3.delete entry
+    would be dropped.'
+- id: SUG-6
+  section: ENV
+  text: staging_prefix stays 'staging_test/' in every environment (Q-ENV-1 got no answer, so the owner's value is kept).
+  proposal: Set staging_prefix to 'staging/' in dev, test and prod, and update the lifecycle rule to match.
+- id: SUG-7
+  section: TRG
+  text: The S3 notification is shared with an existing QueueConfiguration whose filter is unknown. A wrong overlap makes PutBucketNotificationConfiguration
+    fail.
+  proposal: The IaC deployment fails with a clear message when an existing rule overlaps prefix {incoming_prefix} / suffix
+    .zip, so the owner can apply the Q-TRG-1 decision before anything is changed.
+structured_sha: 3b0121ff3f59cbeed6320edc89d7869c7605148f2b7b2b9b3c5d20a29bef7ce6

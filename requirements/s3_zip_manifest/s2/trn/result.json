@@ -1,0 +1,427 @@
+{
+ "lane": "trn",
+ "digest": "f482b2a87e7cfa659838a75567136ac8f01646a8709914cddbfbf65ebf344a16",
+ "units": [
+  "TRN-1",
+  "TRN-2"
+ ],
+ "started_at": "2026-10-23T11:28:35+00:00",
+ "status": "ok",
+ "ended_at": "2026-10-23T11:31:27+00:00",
+ "issues": [],
+ "questions": [],
+ "failing": [],
+ "verdicts": [],
+ "coverage": null,
+ "quality": {
+  "problems": [],
+  "skipped": []
+ },
+ "tests": {
+  "passed": 7,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0
+ },
+ "test_results": [
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_component.py::test_happy_path_study_a",
+   "outcome": "passed"
+  },
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_component.py::test_zip_with_root_manifest_fails",
+   "outcome": "passed"
+  },
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_trn_1.py::test_manifest_built_and_zip_rebuilt",
+   "outcome": "passed"
+  },
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_trn_1.py::test_root_manifest_fails",
+   "outcome": "passed"
+  },
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_trn_1.py::test_existing_staging_same_sha_is_reused",
+   "outcome": "passed"
+  },
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_trn_2.py::test_upload_to_staging_with_metadata",
+   "outcome": "passed"
+  },
+  {
+   "nodeid": "tests/s3_zip_manifest/trn/test_trn_2.py::test_staged_does_nothing",
+   "outcome": "passed"
+  }
+ ],
+ "aws_calls": [
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 404
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "GetObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 404
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "GetObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 404
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "GetObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "ListObjectsV2",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_c_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 404
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "GetObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 404
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "GetObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "processing/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 404
+  },
+  {
+   "service": "s3",
+   "operation": "PutObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "HeadObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "GetObject",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/study_a_20261022T100000Z.zip",
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "CreateBucket",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": null,
+   "queue": null,
+   "status": 200
+  },
+  {
+   "service": "s3",
+   "operation": "ListObjectsV2",
+   "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "key": "staging_test/",
+   "queue": null,
+   "status": 200
+  }
+ ],
+ "deferred": []
+}

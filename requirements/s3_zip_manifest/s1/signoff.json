@@ -1,0 +1,33 @@
+{
+ "inputs": "c673e2fe346e7e0c11b903c483bccf25615b0f85578e35aa818b33f80f2e947a",
+ "digest": "e51ba2e3eb4d942342fc06813a1da23773235f2e654b8bf7614c755ffc6c3a3c",
+ "data": {
+  "units": [
+   "SEP-1",
+   "SEP-2",
+   "TRN-1",
+   "TRN-2",
+   "DLP-1",
+   "DLP-2"
+  ],
+  "examples": [
+   "happy_path_study_a",
+   "replayed_message_source_gone",
+   "zip_with_root_manifest_fails",
+   "outgoing_collision_not_overwritten"
+  ],
+  "questions_answered": [
+   "Q-ENV-alert_email",
+   "Q-SEP-1-1",
+   "Q-TRG-1",
+   "SUG-1",
+   "SUG-2",
+   "SUG-3",
+   "SUG-4",
+   "SUG-5",
+   "SUG-6",
+   "SUG-7"
+  ],
+  "round": 2
+ }
+}

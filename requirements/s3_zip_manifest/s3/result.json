@@ -1,0 +1,14 @@
+{
+ "written": [
+  "dags/pkf_pipelines/s3_zip_manifest/pipeline_raw.py",
+  "dags/pkf_pipelines/s3_zip_manifest/settings/dev.yaml",
+  "dags/pkf_pipelines/s3_zip_manifest/settings/test.yaml",
+  "dags/pkf_pipelines/s3_zip_manifest/settings/prod.yaml",
+  "tests/s3_zip_manifest/pipeline/test_pipeline.py",
+  "tests/s3_zip_manifest/pipeline/examples.yaml"
+ ],
+ "passed": 5,
+ "failed": 0,
+ "integrator_rounds": 0,
+ "fixes": []
+}

@@ -1,0 +1,82 @@
+- name: happy_path_study_a
+  origin: quoted
+  given:
+  - bucket: source_bucket
+    key: incoming/study_a.zip
+    zip:
+      a.pdf: 0123456789
+      b/c.pdf: 01234567890123456789
+  then_present:
+  - bucket: target_bucket
+    key: ^outgoing/20261022T100000Z_study_a\.zip$
+    zip_entries:
+    - a.pdf
+    - b/c.pdf
+    - manifest.csv
+  - bucket: target_bucket
+    key: ^index/s3_zip_manifest/study_a/[0-9a-f]{64}_[0-9a-f]{12}\.json$
+  then_absent:
+  - bucket: source_bucket
+    key: incoming/study_a.zip
+  - bucket: source_bucket
+    key: processing/study_a_20261022T100000Z.zip
+  - bucket: target_bucket
+    key: staging_test/study_a_20261022T100000Z.zip
+  fail_packages: 0
+- name: replayed_message_source_gone
+  origin: derived
+  given: []
+  events:
+  - bucket: source_bucket
+    key: incoming/study_b.zip
+  then_present: []
+  then_absent:
+  - bucket: target_bucket
+    key: outgoing/20261022T100000Z_study_b.zip
+  - bucket: source_bucket
+    key: processing/study_b_20261022T100000Z.zip
+  fail_packages: 0
+- name: zip_with_root_manifest_fails
+  origin: derived
+  given:
+  - bucket: source_bucket
+    key: incoming/study_c.zip
+    zip:
+      a.pdf: x
+      manifest.csv: old
+  then_present:
+  - bucket: source_bucket
+    key: ^processing/study_c_20261022T100000Z\.zip$
+    zip_entries:
+    - a.pdf
+    - manifest.csv
+  then_absent:
+  - bucket: source_bucket
+    key: incoming/study_c.zip
+  - bucket: target_bucket
+    key: outgoing/20261022T100000Z_study_c.zip
+  fail_packages: 1
+- name: outgoing_collision_not_overwritten
+  origin: derived
+  given:
+  - bucket: target_bucket
+    key: outgoing/20261022T100000Z_study_d.zip
+    content: other
+  - bucket: source_bucket
+    key: incoming/study_d.zip
+    zip:
+      a.pdf: x
+  then_present:
+  - bucket: target_bucket
+    key: ^outgoing/20261022T100000Z_study_d\.zip$
+  - bucket: target_bucket
+    key: ^staging_test/study_d_20261022T100000Z\.zip$
+    zip_entries:
+    - a.pdf
+    - manifest.csv
+  - bucket: source_bucket
+    key: ^processing/study_d_20261022T100000Z\.zip$
+  then_absent:
+  - bucket: source_bucket
+    key: incoming/study_d.zip
+  fail_packages: 1

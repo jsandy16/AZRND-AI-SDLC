@@ -1,0 +1,118 @@
+- name: source/target bucket
+  kind: s3_bucket
+  setting: source_bucket
+  status: existing
+  actions:
+  - s3:ListBucket
+  - s3:GetObject
+  - s3:PutObject
+  - s3:DeleteObject
+  - s3:HeadObject
+  - s3:CopyObject
+  details: 'source_bucket and target_bucket are the same bucket. Versioned, SSE-KMS default. SEP-1: Get/Head incoming, index
+    and outgoing; Copy to processing; Delete incoming. SEP-2: Delete incoming. TRN-1: Get processing, Head staging. TRN-2:
+    Put staging. DLP-1: Get staging, Put outgoing and index. DLP-2: Delete processing and staging. Report: Put report_prefix.
+    ListBucket is needed so a HEAD on a missing key returns 404.'
+- name: target bucket
+  kind: s3_bucket
+  setting: target_bucket
+  status: existing
+  actions:
+  - s3:ListBucket
+  - s3:GetObject
+  - s3:PutObject
+  - s3:DeleteObject
+  details: same bucket as source_bucket
+- name: incoming prefix
+  kind: s3_prefix
+  setting: incoming_prefix
+  status: existing
+  actions:
+  - s3:GetObject
+  - s3:DeleteObject
+  details: watched prefix; the pipeline never writes here (no loop)
+- name: processing prefix
+  kind: s3_prefix
+  setting: processing_prefix
+  status: create
+  actions:
+  - s3:GetObject
+  - s3:PutObject
+  - s3:DeleteObject
+  details: SEP-1 writes, TRN-1 reads, DLP-2 deletes
+- name: staging prefix
+  kind: s3_prefix
+  setting: staging_prefix
+  status: create
+  actions:
+  - s3:GetObject
+  - s3:PutObject
+  - s3:DeleteObject
+  details: TRN-2 writes, DLP-1 reads, DLP-2 deletes
+- name: outgoing prefix
+  kind: s3_prefix
+  setting: outgoing_prefix
+  status: create
+  actions:
+  - s3:GetObject
+  - s3:PutObject
+  details: DLP-1 writes, SEP-1 heads; never deleted or overwritten
+- name: index prefix
+  kind: s3_prefix
+  setting: index_prefix
+  status: create
+  actions:
+  - s3:GetObject
+  - s3:PutObject
+  details: DLP-1 writes, SEP-1 reads
+- name: report prefix
+  kind: s3_prefix
+  setting: report_prefix
+  status: create
+  actions:
+  - s3:PutObject
+  details: the report framework task writes {run_id}.json
+- name: package queue
+  kind: sqs_queue
+  setting: queue_url
+  status: create
+  actions:
+  - sqs:ReceiveMessage
+  - sqs:DeleteMessage
+  - sqs:ChangeMessageVisibility
+  - sqs:GetQueueAttributes
+  details: visibility timeout 21600 s, retention 4 days, SSE-SQS, redrive to the DLQ maxReceiveCount 3. Policy allows s3.amazonaws.com
+    sqs:SendMessage with aws:SourceArn = the bucket ARN and aws:SourceAccount = aws_account.
+- name: package DLQ
+  kind: sqs_dlq
+  setting: dlq_url
+  status: create
+  actions:
+  - sqs:GetQueueAttributes
+  details: retention 14 days, SSE-SQS; alarm on ApproximateNumberOfMessagesVisible > 0
+- name: bucket notification
+  kind: s3_notification
+  setting: source_bucket
+  status: create
+  actions:
+  - s3:GetBucketNotification
+  - s3:PutBucketNotification
+  details: IaC only. Read the existing configuration (1 QueueConfiguration), add s3:ObjectCreated:* with prefix {incoming_prefix}
+    and suffix .zip → queue_url, keep every existing rule. On overlap the owner decides (Q-TRG-1).
+- name: bucket KMS key
+  kind: kms_key
+  setting: kms_key_arn
+  status: existing
+  actions:
+  - kms:Decrypt
+  - kms:GenerateDataKey
+  details: bucket default SSE-KMS key (from the probe). No sse param is passed; objects inherit the default encryption.
+- name: lifecycle rule
+  kind: other
+  setting: source_bucket
+  status: create
+  actions:
+  - s3:GetLifecycleConfiguration
+  - s3:PutLifecycleConfiguration
+  details: IaC only (SUG-1). Expire noncurrent versions under incoming_prefix, processing_prefix and staging_prefix after
+    30 days, and remove expired delete markers; merge with existing rules.

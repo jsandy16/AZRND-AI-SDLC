@@ -1,0 +1,898 @@
+{
+ "status": "final",
+ "questions": [],
+ "suggestions": [
+  {
+   "id": "SUG-5",
+   "section": "SEP-2",
+   "text": "The bucket is versioned. If the same key is uploaded again between SEP-1 and SEP-2, a plain DeleteObject puts a delete marker on top of the NEW version, so a fresh upload disappears until someone notices. The second event then finds the source gone and is skipped.",
+   "proposal": "SEP-1 stores the source VersionId from HeadObject in vars.source_version_id. SEP-2 becomes custom code: head the source and delete only when the current VersionId equals vars.source_version_id (DeleteObject with that VersionId). Otherwise it leaves the object alone and logs a WARNING (the new upload has its own event). The uses: s3.delete entry would be dropped."
+  },
+  {
+   "id": "SUG-6",
+   "section": "ENV",
+   "text": "staging_prefix stays 'staging_test/' in every environment (Q-ENV-1 got no answer, so the owner's value is kept).",
+   "proposal": "Set staging_prefix to 'staging/' in dev, test and prod, and update the lifecycle rule to match."
+  },
+  {
+   "id": "SUG-7",
+   "section": "TRG",
+   "text": "The S3 notification is shared with an existing QueueConfiguration whose filter is unknown. A wrong overlap makes PutBucketNotificationConfiguration fail.",
+   "proposal": "The IaC deployment fails with a clear message when an existing rule overlaps prefix {incoming_prefix} / suffix .zip, so the owner can apply the Q-TRG-1 decision before anything is changed."
+  }
+ ],
+ "trigger": {
+  "kind": "sqs",
+  "schedule": "0 * * * *",
+  "timezone": "UTC",
+  "queue": "queue_url",
+  "bucket": "source_bucket",
+  "prefix": "incoming_prefix",
+  "suffix": ".zip",
+  "max_packages": 100
+ },
+ "settings": [
+  {
+   "name": "aws_account",
+   "dev": "992382551516",
+   "description": "AWS account id (test/prod unknown)"
+  },
+  {
+   "name": "region",
+   "dev": "eu-north-1",
+   "description": "AWS region (confirmed by the probe)"
+  },
+  {
+   "name": "source_bucket",
+   "dev": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "description": "bucket where packages arrive"
+  },
+  {
+   "name": "target_bucket",
+   "dev": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+   "description": "delivery bucket; the same bucket as the source"
+  },
+  {
+   "name": "incoming_prefix",
+   "dev": "incoming/",
+   "description": "watched prefix (S3 notification filter, suffix .zip)"
+  },
+  {
+   "name": "processing_prefix",
+   "dev": "processing/",
+   "description": "renamed working copy of the original zip"
+  },
+  {
+   "name": "staging_prefix",
+   "dev": "staging_test/",
+   "description": "rebuilt zip with manifest.csv before delivery (owner's value kept, see SUG-6)"
+  },
+  {
+   "name": "outgoing_prefix",
+   "dev": "outgoing/",
+   "description": "final delivery prefix in target_bucket; never overwritten"
+  },
+  {
+   "name": "index_prefix",
+   "dev": "index/s3_zip_manifest/",
+   "description": "delivery index objects {index_prefix}{stem}/{source_sha256}_{source_key_hash}.json (SUG-2); derived value, must not be under incoming_prefix"
+  },
+  {
+   "name": "report_prefix",
+   "dev": "reports/s3_zip_manifest/",
+   "description": "run reports s3://{target_bucket}/{report_prefix}{run_id}.json (SUG-3); value derived from the owner's example"
+  },
+  {
+   "name": "queue_url",
+   "dev": "create",
+   "description": "SQS queue receiving S3 ObjectCreated events for {incoming_prefix}*.zip"
+  },
+  {
+   "name": "dlq_url",
+   "dev": "create",
+   "description": "dead-letter queue of queue_url, maxReceiveCount 3 (Q-TRG-2 proposal)"
+  },
+  {
+   "name": "kms_key_arn",
+   "dev": "arn:aws:kms:eu-north-1:992382551516:key/65f013e6-0620-4f49-a814-ce30d321f3dc",
+   "description": "the bucket's default SSE-KMS key, used for IAM only; derived from the probe"
+  },
+  {
+   "name": "aws_conn_id",
+   "dev": "aws_default",
+   "description": "Airflow connection (no secrets)"
+  },
+  {
+   "name": "alert_email",
+   "dev": "",
+   "description": "data-engineering team e-mail address for alerts"
+  }
+ ],
+ "units": [
+  {
+   "id": "SEP-1",
+   "title": "Copy and rename the package",
+   "does": "Check whether the package's source object (ctx.source.key) exists. If it does: compute its sha256 and look for the delivery index object {index_prefix}{stem}/{source_sha256}_{source_key_hash}.json. When the index exists, its source_key equals the source key, and the referenced outgoing object still exists with metadata pkf-source-sha256 equal to the sha: delete the incoming original and mark the package skipped. Otherwise server-side copy the source to {processing_prefix}{stem}_{package_ts}.zip in {source_bucket}, verified by size and sha256 (skip_identical). If the source is gone: resume from an existing processing copy, else skip with a WARNING (replay).",
+   "level": "package",
+   "on_failure": "fail_package",
+   "uses": "",
+   "params_json": "{}",
+   "settings_used": [
+    "source_bucket",
+    "target_bucket",
+    "processing_prefix",
+    "outgoing_prefix",
+    "index_prefix"
+   ],
+   "reads": [
+    "source_bucket:{source.key}",
+    "target_bucket:{index_prefix}{stem}/{source_sha256}_{source_key_hash}.json",
+    "target_bucket:{outgoing_prefix}*_{stem}.zip (head only, the key from the index)",
+    "source_bucket:{processing_prefix}{stem}_{package_ts}.zip"
+   ],
+   "writes": [
+    "source_bucket:{processing_prefix}{stem}_{package_ts}.zip",
+    "delete source_bucket:{source.key} (only on a verified earlier delivery)"
+   ],
+   "idempotency": "verified_copy with if_exists=skip_identical: a target with the same sha counts as done, a different sha raises DataError. When the source is already gone, the existing processing copy is resumed; with no processing copy either, the package is skipped.",
+   "side_effects": [
+    "may delete the incoming original when the index proves an earlier verified delivery"
+   ],
+   "edge_cases": [],
+   "clauses": [
+    {
+     "id": "R-SEP-1-a",
+     "text": "The processing key is {processing_prefix}{stem}_{package_ts}.zip, where package_ts is the S3 event time in YYYYMMDDTHHMMSSZ UTC."
+    },
+    {
+     "id": "R-SEP-1-b",
+     "text": "The copy is verified by size and sha256, never by ETag. A different existing target raises DataError."
+    },
+    {
+     "id": "R-SEP-1-c",
+     "text": "A package counts as already delivered only when the index object for (stem, source sha256, source key hash) exists, its source_key equals ctx.source.key, and its outgoing object exists with pkf-source-sha256 == source sha256. Then the original is deleted and status=skipped."
+    },
+    {
+     "id": "R-SEP-1-d",
+     "text": "Source gone + processing copy present → resume. Source gone + no processing copy → status skipped with a WARNING (message is deleted by ack)."
+    },
+    {
+     "id": "R-SEP-1-e",
+     "text": "When the current source size differs from ctx.source.size, log a WARNING and process the current version."
+    }
+   ],
+   "helpers": [
+    {
+     "name": "source_key_hash",
+     "signature": "def source_key_hash(key: str) -> str",
+     "purpose": "stable short hash of the source key for the index name",
+     "pseudocode": "return hashlib.sha1(key.encode('utf-8')).hexdigest()[:12]"
+    },
+    {
+     "name": "index_key",
+     "signature": "def index_key(rt: Runtime, stem: str, sha: str, key_hash: str) -> str",
+     "purpose": "render the delivery index key",
+     "pseudocode": "return check_key(render('{index_prefix}{stem}/{sha}_{h}.json', index_prefix=rt.settings['index_prefix'], stem=stem, sha=sha, h=key_hash))"
+    }
+   ],
+   "pseudocode": "1. s3 = rt.s3(); src_b = ctx.source.bucket; src_k = ctx.source.key; stem = ctx.vars['stem']; ts = ctx.vars['package_ts'].\n2. proc_key = check_key(f\"{rt.settings['processing_prefix']}{stem}_{ts}.zip\"); kh = source_key_hash(src_k).\n3. h = head(s3, src_b, src_k).\n4. If h is None:\n   a. ph = head(s3, rt.settings['source_bucket'], proc_key). If ph: sha = sha256_of(s3, source_bucket, proc_key); set vars source_sha256=sha, source_key_hash=kh, source_key=src_k; artefacts.renamed_key=proc_key; log INFO 'resume'; return ctx.\n   b. Else log WARNING 'source gone, nothing to resume'; ctx.status='skipped'; return ctx.\n5. If ctx.source.size is not None and h['size'] != ctx.source.size: log WARNING.\n6. sha = sha256_of(s3, src_b, src_k).\n7. ik = index_key(rt, stem, sha, kh); obj = head(s3, target_bucket, ik).\n8. If obj: download it to rt.tmpdir() and json-load it → idx. If idx['source_key'] == src_k: oh = head(s3, target_bucket, idx['outgoing_key']). If oh and oh.metadata['pkf-source-sha256'] == sha: delete(s3, src_b, src_k, missing_ok=True); ctx.status='skipped'; vars.already_delivered=idx['outgoing_key']; return ctx.\n9. verified_copy(s3, src_b, src_k, rt.settings['source_bucket'], proc_key, if_exists='skip_identical') (a different existing sha → DataError).\n10. Set vars source_sha256=sha, source_key_hash=kh, source_key=src_k; artefacts.renamed_key=proc_key; return ctx.",
+   "aws_calls": [
+    "s3:HeadObject {source_bucket}/{incoming_prefix}*",
+    "s3:GetObject {source_bucket}/{incoming_prefix}*",
+    "s3:HeadObject {target_bucket}/{index_prefix}*",
+    "s3:GetObject {target_bucket}/{index_prefix}*",
+    "s3:HeadObject {target_bucket}/{outgoing_prefix}*",
+    "s3:CopyObject {source_bucket}/{incoming_prefix}* -> {source_bucket}/{processing_prefix}*",
+    "s3:HeadObject {source_bucket}/{processing_prefix}*",
+    "s3:DeleteObject {source_bucket}/{incoming_prefix}*"
+   ]
+  },
+  {
+   "id": "SEP-2",
+   "title": "Remove the original",
+   "does": "Delete the package's own source object (ctx.source.bucket/ctx.source.key, the exact key from the event). An object that is already gone is fine. It runs only when SEP-1 left status ok, which means the processing copy is verified (skipped packages pass through).",
+   "level": "package",
+   "on_failure": "fail_package",
+   "uses": "s3.delete",
+   "params_json": "{\"missing_ok\": true}",
+   "settings_used": [],
+   "reads": [],
+   "writes": [
+    "delete source_bucket:{source.key}"
+   ],
+   "idempotency": "missing_ok=true: a second run finds the object gone and does nothing.",
+   "side_effects": [
+    "adds a delete marker (versioned bucket); the noncurrent version expires after 30 days via the lifecycle rule"
+   ],
+   "edge_cases": [],
+   "clauses": [
+    {
+     "id": "R-SEP-2-a",
+     "text": "Delete the source only after SEP-1 verified the processing copy (guaranteed by the order and status ok)."
+    },
+    {
+     "id": "R-SEP-2-b",
+     "text": "bucket/key default to ctx.source; the owner's '{incoming_prefix}{name}.zip' template is replaced because {name} already holds '.zip'."
+    }
+   ],
+   "helpers": [],
+   "pseudocode": "1. run_op('s3.delete', ctx, rt, {'missing_ok': True}): delete ctx.source.bucket/ctx.source.key.\n2. Return ctx.",
+   "aws_calls": [
+    "s3:DeleteObject {source_bucket}/{incoming_prefix}*"
+   ]
+  },
+  {
+   "id": "TRN-1",
+   "title": "Build the manifest",
+   "does": "Unless a staging zip for this package already exists with matching pkf-source-sha256: check free disk space, then download artefacts.renamed_key to rt.shared_dir() and safe-extract it. Build manifest.csv with columns file_name,size_bytes (header row; one row per non-folder entry in zip order; file_name is the path inside the zip, size_bytes the uncompressed size). Build a new zip64 with the original files plus manifest.csv at the root. Hand over its path in artefacts.new_zip_path.",
+   "level": "package",
+   "on_failure": "fail_package",
+   "uses": "",
+   "params_json": "{}",
+   "settings_used": [
+    "source_bucket",
+    "target_bucket",
+    "staging_prefix"
+   ],
+   "reads": [
+    "source_bucket:{processing_prefix}{stem}_{package_ts}.zip",
+    "target_bucket:{staging_prefix}{stem}_{package_ts}.zip (head only)"
+   ],
+   "writes": [],
+   "idempotency": "When the staging zip already exists with pkf-source-sha256 == vars.source_sha256, it sets artefacts.staging_key and builds nothing; a staging zip with a different source sha raises DataError. Otherwise it is a pure local rebuild in shared_dir.",
+   "side_effects": [
+    "local files in rt.shared_dir() (deleted after the TRN group)"
+   ],
+   "edge_cases": [],
+   "clauses": [
+    {
+     "id": "R-TRN-1-a",
+     "text": "manifest.csv: UTF-8 without BOM, comma separator, RFC 4180 quoting, LF line endings, header file_name,size_bytes, rows in zip entry order, every non-folder entry (not only .pdf)."
+    },
+    {
+     "id": "R-TRN-1-b",
+     "text": "A zip that already contains a root manifest.csv fails the package with DataError."
+    },
+    {
+     "id": "R-TRN-1-c",
+     "text": "Extraction uses archive.safe_extract (zip-slip, symlinks and bombs → DataError)."
+    },
+    {
+     "id": "R-TRN-1-d",
+     "text": "Before downloading, free space in shared_dir must be ≥ 3 × zip size × 1.1, else TransientError."
+    },
+    {
+     "id": "R-TRN-1-e",
+     "text": "TRN-1 and TRN-2 share one Airflow task (group); the local zip path is handed over in artefacts.new_zip_path."
+    }
+   ],
+   "helpers": [
+    {
+     "name": "build_manifest",
+     "signature": "def build_manifest(entries: list[dict], dest: Path) -> Path",
+     "purpose": "write manifest.csv from zip entries",
+     "pseudocode": "rows=[(e['name'], e['size']) for e in entries if not e['is_dir']]; open dest 'w', encoding='utf-8', newline=''; csv.writer(f, lineterminator='\\n', quoting=csv.QUOTE_MINIMAL); writerow(['file_name','size_bytes']); writerows(rows); return dest"
+    },
+    {
+     "name": "ensure_disk",
+     "signature": "def ensure_disk(path: Path, zip_size: int) -> None",
+     "purpose": "guard the worker disk",
+     "pseudocode": "free=shutil.disk_usage(path).free; if free < int(zip_size*3*1.1): raise TransientError(f'need {..} bytes, free {free}')"
+    }
+   ],
+   "pseudocode": "1. s3=rt.s3(); stem, ts = vars; stg_key = check_key(f\"{rt.settings['staging_prefix']}{stem}_{ts}.zip\").\n2. sh = head(s3, target_bucket, stg_key). If sh: if sh.metadata.get('pkf-source-sha256') == vars.source_sha256: artefacts.staging_key=stg_key; vars.staged=True; return ctx. Else raise DataError('staging object exists for another source').\n3. d = rt.shared_dir(); ph = head(s3, source_bucket, artefacts.renamed_key); ensure_disk(d, ph['size']).\n4. zp = download(s3, source_bucket, artefacts.renamed_key, d/'in.zip').\n5. ents = entries(zp); if any(e['name']=='manifest.csv' for e in ents): raise DataError.\n6. files = safe_extract(zp, d/'x'); map each entry name to d/'x'/name.\n7. m = build_manifest(ents, d/'manifest.csv').\n8. out = make_zip([(d/'x'/e['name'], e['name']) for e in ents if not e['is_dir']] + [(m,'manifest.csv')], d/'out.zip').\n9. Delete in.zip to free space; artefacts.new_zip_path=str(out); vars.manifest_rows=len(non-folder entries); return ctx.",
+   "aws_calls": [
+    "s3:HeadObject {target_bucket}/{staging_prefix}*",
+    "s3:HeadObject {source_bucket}/{processing_prefix}*",
+    "s3:GetObject {source_bucket}/{processing_prefix}*"
+   ]
+  },
+  {
+   "id": "TRN-2",
+   "title": "Upload to staging",
+   "does": "Upload artefacts.new_zip_path to {staging_prefix}{stem}_{package_ts}.zip in {target_bucket}, with metadata pkf-source-key=vars.source_key and pkf-source-sha256=vars.source_sha256 (pkf-sha256 is added by the kit), if_exists=fail. Hand over the key as artefacts.staging_key. When TRN-1 found the staging zip already done (vars.staged), do nothing.",
+   "level": "package",
+   "on_failure": "fail_package",
+   "uses": "",
+   "params_json": "{}",
+   "settings_used": [
+    "target_bucket",
+    "staging_prefix"
+   ],
+   "reads": [],
+   "writes": [
+    "target_bucket:{staging_prefix}{stem}_{package_ts}.zip"
+   ],
+   "idempotency": "TRN-1 detects an existing staging zip for the same source sha and sets vars.staged, so the upload is skipped. Written under the final name only.",
+   "side_effects": [],
+   "edge_cases": [],
+   "clauses": [
+    {
+     "id": "R-TRN-2-a",
+     "text": "The staging zip carries user metadata pkf-source-key and pkf-source-sha256."
+    },
+    {
+     "id": "R-TRN-2-b",
+     "text": "artefacts.staging_key is set in every ok path."
+    }
+   ],
+   "helpers": [],
+   "pseudocode": "1. If vars.get('staged'): return ctx (staging_key already set).\n2. key = check_key(f\"{rt.settings['staging_prefix']}{vars.stem}_{vars.package_ts}.zip\").\n3. upload(rt.s3(), Path(artefacts.new_zip_path), target_bucket, key, if_exists='fail', metadata={'pkf-source-key': vars.source_key, 'pkf-source-sha256': vars.source_sha256}).\n4. artefacts.staging_key = key; return ctx.",
+   "aws_calls": [
+    "s3:PutObject {target_bucket}/{staging_prefix}*",
+    "s3:HeadObject {target_bucket}/{staging_prefix}*"
+   ]
+  },
+  {
+   "id": "DLP-1",
+   "title": "Deliver to outgoing",
+   "does": "Verified server-side copy of artefacts.staging_key to {outgoing_prefix}{package_ts}_{stem}.zip in {target_bucket} with if_exists=skip_identical (never overwrite; a different existing object raises DataError). Then check that the outgoing object carries pkf-source-key and pkf-source-sha256 equal to the vars. Finally write the delivery index object {index_prefix}{stem}/{source_sha256}_{source_key_hash}.json.",
+   "level": "package",
+   "on_failure": "fail_package",
+   "uses": "",
+   "params_json": "{}",
+   "settings_used": [
+    "target_bucket",
+    "outgoing_prefix",
+    "index_prefix"
+   ],
+   "reads": [
+    "target_bucket:{staging_prefix}{stem}_{package_ts}.zip"
+   ],
+   "writes": [
+    "target_bucket:{outgoing_prefix}{package_ts}_{stem}.zip",
+    "target_bucket:{index_prefix}{stem}/{source_sha256}_{source_key_hash}.json"
+   ],
+   "idempotency": "skip_identical on both writes. The index content is deterministic (sorted keys, no run clock), so a re-run finds identical objects.",
+   "side_effects": [],
+   "edge_cases": [],
+   "clauses": [
+    {
+     "id": "R-DLP-1-a",
+     "text": "Outgoing name {outgoing_prefix}{package_ts}_{stem}.zip; an existing object is never overwritten."
+    },
+    {
+     "id": "R-DLP-1-b",
+     "text": "After the copy, the outgoing metadata pkf-source-key/pkf-source-sha256 must equal vars.source_key/vars.source_sha256, else DataError."
+    },
+    {
+     "id": "R-DLP-1-c",
+     "text": "Index JSON = {\"source_key\", \"source_sha256\", \"outgoing_key\", \"outgoing_sha256\", \"package_ts\"}, sort_keys, written only after the outgoing object is verified."
+    }
+   ],
+   "helpers": [],
+   "pseudocode": "1. s3=rt.s3(); tb=rt.settings['target_bucket']; out_key=check_key(f\"{outgoing_prefix}{package_ts}_{stem}.zip\").\n2. r = verified_copy(s3, tb, artefacts.staging_key, tb, out_key, if_exists='skip_identical').\n3. oh = head(s3, tb, out_key); if oh.metadata.get('pkf-source-key')!=vars.source_key or oh.metadata.get('pkf-source-sha256')!=vars.source_sha256: raise DataError.\n4. idx = {source_key, source_sha256, outgoing_key: out_key, outgoing_sha256: sha256_of(s3,tb,out_key), package_ts}; write json.dumps(idx, sort_keys=True) to rt.tmpdir()/'idx.json'.\n5. ik = index_key(rt, stem, source_sha256, source_key_hash); upload(s3, path, tb, ik, if_exists='skip_identical').\n6. artefacts.outgoing_key=out_key; artefacts.index_key=ik; return ctx.",
+   "aws_calls": [
+    "s3:CopyObject {target_bucket}/{staging_prefix}* -> {target_bucket}/{outgoing_prefix}*",
+    "s3:HeadObject {target_bucket}/{outgoing_prefix}*",
+    "s3:GetObject {target_bucket}/{outgoing_prefix}*",
+    "s3:PutObject {target_bucket}/{index_prefix}*",
+    "s3:HeadObject {target_bucket}/{index_prefix}*"
+   ]
+  },
+  {
+   "id": "DLP-2",
+   "title": "Clean up",
+   "does": "After confirming that artefacts.outgoing_key exists in {target_bucket}, delete artefacts.renamed_key (processing copy, source_bucket) and artefacts.staging_key (target_bucket), missing_ok. A failure here does not fail the package.",
+   "level": "package",
+   "on_failure": "skip",
+   "uses": "",
+   "params_json": "{}",
+   "settings_used": [
+    "source_bucket",
+    "target_bucket"
+   ],
+   "reads": [
+    "target_bucket:{outgoing_prefix}{package_ts}_{stem}.zip (head)"
+   ],
+   "writes": [
+    "delete source_bucket:{processing_prefix}{stem}_{package_ts}.zip",
+    "delete target_bucket:{staging_prefix}{stem}_{package_ts}.zip"
+   ],
+   "idempotency": "Deletes with missing_ok=True.",
+   "side_effects": [
+    "delete markers; the lifecycle rule expires the noncurrent versions after 30 days"
+   ],
+   "edge_cases": [],
+   "clauses": [
+    {
+     "id": "R-DLP-2-a",
+     "text": "Delete only when head(outgoing_key) succeeds; otherwise log a WARNING and keep both copies."
+    }
+   ],
+   "helpers": [],
+   "pseudocode": "1. If head(s3, target_bucket, artefacts.outgoing_key) is None: log WARNING; return ctx.\n2. delete(s3, source_bucket, artefacts.renamed_key, missing_ok=True).\n3. delete(s3, target_bucket, artefacts.staging_key, missing_ok=True).\n4. Return ctx.",
+   "aws_calls": [
+    "s3:HeadObject {target_bucket}/{outgoing_prefix}*",
+    "s3:DeleteObject {source_bucket}/{processing_prefix}*",
+    "s3:DeleteObject {target_bucket}/{staging_prefix}*"
+   ]
+  }
+ ],
+ "dag_order": [
+  "SEP-1",
+  "SEP-2",
+  "TRN-1",
+  "TRN-2",
+  "DLP-1",
+  "DLP-2"
+ ],
+ "groups": [
+  [
+   "TRN-1",
+   "TRN-2"
+  ]
+ ],
+ "contracts": [
+  {
+   "after": "SEP-0",
+   "fields": [
+    {
+     "name": "package_id",
+     "type": "str",
+     "meaning": "stable id (message id)"
+    },
+    {
+     "name": "name",
+     "type": "str",
+     "meaning": "base file name, e.g. study_a.zip"
+    },
+    {
+     "name": "source.bucket",
+     "type": "str",
+     "meaning": "event bucket"
+    },
+    {
+     "name": "source.key",
+     "type": "str",
+     "meaning": "exact event key under incoming/"
+    },
+    {
+     "name": "source.size",
+     "type": "int",
+     "meaning": "size from the event"
+    },
+    {
+     "name": "source.event_time",
+     "type": "str",
+     "meaning": "ISO-8601 UTC event time"
+    },
+    {
+     "name": "source.message_id",
+     "type": "str",
+     "meaning": "SQS message id"
+    },
+    {
+     "name": "source.receipt_handle",
+     "type": "str",
+     "meaning": "SQS receipt handle"
+    },
+    {
+     "name": "vars.package_ts",
+     "type": "str",
+     "meaning": "event time as YYYYMMDDTHHMMSSZ"
+    },
+    {
+     "name": "vars.stem",
+     "type": "str",
+     "meaning": "name without .zip"
+    },
+    {
+     "name": "vars.ext",
+     "type": "str",
+     "meaning": ".zip"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "source_bucket",
+     "key": "{incoming_prefix}{name}",
+     "meaning": "original package (absent for a replay)"
+    }
+   ]
+  },
+  {
+   "after": "SEP-1",
+   "fields": [
+    {
+     "name": "status",
+     "type": "str",
+     "meaning": "ok, or skipped (already delivered / replay)"
+    },
+    {
+     "name": "vars.source_sha256",
+     "type": "str",
+     "meaning": "sha256 of the original zip"
+    },
+    {
+     "name": "vars.source_key",
+     "type": "str",
+     "meaning": "original source key"
+    },
+    {
+     "name": "vars.source_key_hash",
+     "type": "str",
+     "meaning": "sha1(source_key)[:12]"
+    },
+    {
+     "name": "artefacts.renamed_key",
+     "type": "str",
+     "meaning": "{processing_prefix}{stem}_{package_ts}.zip"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "source_bucket",
+     "key": "{processing_prefix}{stem}_{package_ts}.zip",
+     "meaning": "verified copy of the original"
+    },
+    {
+     "bucket": "source_bucket",
+     "key": "{incoming_prefix}{name}",
+     "meaning": "original still present"
+    }
+   ]
+  },
+  {
+   "after": "SEP-2",
+   "fields": [
+    {
+     "name": "artefacts.renamed_key",
+     "type": "str",
+     "meaning": "processing copy key"
+    },
+    {
+     "name": "vars.source_sha256",
+     "type": "str",
+     "meaning": "source sha"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "source_bucket",
+     "key": "{processing_prefix}{stem}_{package_ts}.zip",
+     "meaning": "only copy of the package; incoming original deleted"
+    }
+   ]
+  },
+  {
+   "after": "TRN-1",
+   "fields": [
+    {
+     "name": "artefacts.new_zip_path",
+     "type": "str",
+     "meaning": "local path in rt.shared_dir() of the rebuilt zip (valid only inside the TRN group); absent when vars.staged"
+    },
+    {
+     "name": "vars.staged",
+     "type": "bool",
+     "meaning": "true when the staging zip already existed"
+    },
+    {
+     "name": "vars.manifest_rows",
+     "type": "int",
+     "meaning": "number of manifest rows (when built)"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "source_bucket",
+     "key": "{processing_prefix}{stem}_{package_ts}.zip",
+     "meaning": "processing copy"
+    }
+   ]
+  },
+  {
+   "after": "TRN-2",
+   "fields": [
+    {
+     "name": "artefacts.staging_key",
+     "type": "str",
+     "meaning": "{staging_prefix}{stem}_{package_ts}.zip"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "target_bucket",
+     "key": "{staging_prefix}{stem}_{package_ts}.zip",
+     "meaning": "rebuilt zip with manifest.csv, metadata pkf-source-key/pkf-source-sha256/pkf-sha256"
+    }
+   ]
+  },
+  {
+   "after": "DLP-1",
+   "fields": [
+    {
+     "name": "artefacts.outgoing_key",
+     "type": "str",
+     "meaning": "{outgoing_prefix}{package_ts}_{stem}.zip"
+    },
+    {
+     "name": "artefacts.index_key",
+     "type": "str",
+     "meaning": "delivery index key"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "target_bucket",
+     "key": "{outgoing_prefix}{package_ts}_{stem}.zip",
+     "meaning": "delivered package"
+    },
+    {
+     "bucket": "target_bucket",
+     "key": "{index_prefix}{stem}/{source_sha256}_{source_key_hash}.json",
+     "meaning": "delivery index"
+    }
+   ]
+  },
+  {
+   "after": "DLP-2",
+   "fields": [
+    {
+     "name": "artefacts.outgoing_key",
+     "type": "str",
+     "meaning": "delivered key"
+    }
+   ],
+   "s3_objects": [
+    {
+     "bucket": "target_bucket",
+     "key": "{outgoing_prefix}{package_ts}_{stem}.zip",
+     "meaning": "delivered package; processing and staging copies deleted"
+    }
+   ]
+  }
+ ],
+ "examples": [
+  {
+   "name": "happy_path_study_a",
+   "origin": "quoted",
+   "example_json": "{\"given\": [{\"bucket\": \"source_bucket\", \"key\": \"incoming/study_a.zip\", \"zip\": {\"a.pdf\": \"0123456789\", \"b/c.pdf\": \"01234567890123456789\"}}], \"then_present\": [{\"bucket\": \"target_bucket\", \"key\": \"^outgoing/20261022T100000Z_study_a\\\\.zip$\", \"zip_entries\": [\"a.pdf\", \"b/c.pdf\", \"manifest.csv\"]}, {\"bucket\": \"target_bucket\", \"key\": \"^index/s3_zip_manifest/study_a/[0-9a-f]{64}_[0-9a-f]{12}\\\\.json$\"}], \"then_absent\": [{\"bucket\": \"source_bucket\", \"key\": \"incoming/study_a.zip\"}, {\"bucket\": \"source_bucket\", \"key\": \"processing/study_a_20261022T100000Z.zip\"}, {\"bucket\": \"target_bucket\", \"key\": \"staging_test/study_a_20261022T100000Z.zip\"}], \"fail_packages\": 0}"
+  },
+  {
+   "name": "replayed_message_source_gone",
+   "origin": "derived",
+   "example_json": "{\"given\": [], \"events\": [{\"bucket\": \"source_bucket\", \"key\": \"incoming/study_b.zip\"}], \"then_present\": [], \"then_absent\": [{\"bucket\": \"target_bucket\", \"key\": \"outgoing/20261022T100000Z_study_b.zip\"}, {\"bucket\": \"source_bucket\", \"key\": \"processing/study_b_20261022T100000Z.zip\"}], \"fail_packages\": 0}"
+  },
+  {
+   "name": "zip_with_root_manifest_fails",
+   "origin": "derived",
+   "example_json": "{\"given\": [{\"bucket\": \"source_bucket\", \"key\": \"incoming/study_c.zip\", \"zip\": {\"a.pdf\": \"x\", \"manifest.csv\": \"old\"}}], \"then_present\": [{\"bucket\": \"source_bucket\", \"key\": \"^processing/study_c_20261022T100000Z\\\\.zip$\", \"zip_entries\": [\"a.pdf\", \"manifest.csv\"]}], \"then_absent\": [{\"bucket\": \"source_bucket\", \"key\": \"incoming/study_c.zip\"}, {\"bucket\": \"target_bucket\", \"key\": \"outgoing/20261022T100000Z_study_c.zip\"}], \"fail_packages\": 1}"
+  },
+  {
+   "name": "outgoing_collision_not_overwritten",
+   "origin": "derived",
+   "example_json": "{\"given\": [{\"bucket\": \"target_bucket\", \"key\": \"outgoing/20261022T100000Z_study_d.zip\", \"content\": \"other\"}, {\"bucket\": \"source_bucket\", \"key\": \"incoming/study_d.zip\", \"zip\": {\"a.pdf\": \"x\"}}], \"then_present\": [{\"bucket\": \"target_bucket\", \"key\": \"^outgoing/20261022T100000Z_study_d\\\\.zip$\"}, {\"bucket\": \"target_bucket\", \"key\": \"^staging_test/study_d_20261022T100000Z\\\\.zip$\", \"zip_entries\": [\"a.pdf\", \"manifest.csv\"]}, {\"bucket\": \"source_bucket\", \"key\": \"^processing/study_d_20261022T100000Z\\\\.zip$\"}], \"then_absent\": [{\"bucket\": \"source_bucket\", \"key\": \"incoming/study_d.zip\"}], \"fail_packages\": 1}"
+  }
+ ],
+ "traces": [
+  {
+   "example": "happy_path_study_a",
+   "after": "SEP-0",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"source\": {\"bucket\": \"dev-dpl-dstore-sas-eu-north-1-992382551516\", \"key\": \"incoming/study_a.zip\", \"event_time\": \"2026-10-22T10:00:00Z\"}, \"vars\": {\"package_ts\": \"20261022T100000Z\", \"stem\": \"study_a\", \"ext\": \".zip\"}, \"artefacts\": {}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "source_bucket:incoming/study_a.zip"
+   ]
+  },
+  {
+   "example": "happy_path_study_a",
+   "after": "SEP-1",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"vars\": {\"package_ts\": \"20261022T100000Z\", \"stem\": \"study_a\", \"ext\": \".zip\", \"source_sha256\": \"<sha256 of incoming/study_a.zip>\", \"source_key\": \"incoming/study_a.zip\", \"source_key_hash\": \"<sha1('incoming/study_a.zip')[:12]>\"}, \"artefacts\": {\"renamed_key\": \"processing/study_a_20261022T100000Z.zip\"}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "source_bucket:incoming/study_a.zip",
+    "source_bucket:processing/study_a_20261022T100000Z.zip"
+   ]
+  },
+  {
+   "example": "happy_path_study_a",
+   "after": "SEP-2",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"vars\": {\"package_ts\": \"20261022T100000Z\", \"stem\": \"study_a\", \"source_sha256\": \"<sha256>\", \"source_key\": \"incoming/study_a.zip\", \"source_key_hash\": \"<h12>\"}, \"artefacts\": {\"renamed_key\": \"processing/study_a_20261022T100000Z.zip\"}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "source_bucket:processing/study_a_20261022T100000Z.zip"
+   ]
+  },
+  {
+   "example": "happy_path_study_a",
+   "after": "TRN-1",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"vars\": {\"package_ts\": \"20261022T100000Z\", \"stem\": \"study_a\", \"source_sha256\": \"<sha256>\", \"source_key_hash\": \"<h12>\", \"manifest_rows\": 2}, \"artefacts\": {\"renamed_key\": \"processing/study_a_20261022T100000Z.zip\", \"new_zip_path\": \"<shared_dir>/out.zip\"}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "source_bucket:processing/study_a_20261022T100000Z.zip"
+   ]
+  },
+  {
+   "example": "happy_path_study_a",
+   "after": "TRN-2",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"vars\": {\"package_ts\": \"20261022T100000Z\", \"stem\": \"study_a\", \"source_sha256\": \"<sha256>\", \"source_key_hash\": \"<h12>\", \"manifest_rows\": 2}, \"artefacts\": {\"renamed_key\": \"processing/study_a_20261022T100000Z.zip\", \"new_zip_path\": \"<shared_dir>/out.zip\", \"staging_key\": \"staging_test/study_a_20261022T100000Z.zip\"}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "source_bucket:processing/study_a_20261022T100000Z.zip",
+    "target_bucket:staging_test/study_a_20261022T100000Z.zip"
+   ]
+  },
+  {
+   "example": "happy_path_study_a",
+   "after": "DLP-1",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"artefacts\": {\"renamed_key\": \"processing/study_a_20261022T100000Z.zip\", \"staging_key\": \"staging_test/study_a_20261022T100000Z.zip\", \"outgoing_key\": \"outgoing/20261022T100000Z_study_a.zip\", \"index_key\": \"index/s3_zip_manifest/study_a/<sha256>_<h12>.json\"}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "source_bucket:processing/study_a_20261022T100000Z.zip",
+    "target_bucket:staging_test/study_a_20261022T100000Z.zip",
+    "target_bucket:outgoing/20261022T100000Z_study_a.zip",
+    "target_bucket:index/s3_zip_manifest/study_a/<sha256>_<h12>.json"
+   ]
+  },
+  {
+   "example": "happy_path_study_a",
+   "after": "DLP-2",
+   "ctx_json": "{\"name\": \"study_a.zip\", \"artefacts\": {\"outgoing_key\": \"outgoing/20261022T100000Z_study_a.zip\", \"index_key\": \"index/s3_zip_manifest/study_a/<sha256>_<h12>.json\"}, \"status\": \"ok\"}",
+   "s3_keys": [
+    "target_bucket:outgoing/20261022T100000Z_study_a.zip",
+    "target_bucket:index/s3_zip_manifest/study_a/<sha256>_<h12>.json"
+   ]
+  }
+ ],
+ "resources": [
+  {
+   "name": "source/target bucket",
+   "kind": "s3_bucket",
+   "setting": "source_bucket",
+   "status": "existing",
+   "actions": [
+    "s3:ListBucket",
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject"
+   ],
+   "details": "source_bucket and target_bucket are the same bucket. Versioned, SSE-KMS default. SEP-1: Get/Head incoming, index and outgoing; Copy to processing; Delete incoming. SEP-2: Delete incoming. TRN-1: Get processing, Head staging. TRN-2: Put staging. DLP-1: Get staging, Put outgoing and index. DLP-2: Delete processing and staging. Report: Put report_prefix. ListBucket is needed so a HEAD on a missing key returns 404."
+  },
+  {
+   "name": "target bucket",
+   "kind": "s3_bucket",
+   "setting": "target_bucket",
+   "status": "existing",
+   "actions": [
+    "s3:ListBucket",
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject"
+   ],
+   "details": "same bucket as source_bucket"
+  },
+  {
+   "name": "incoming prefix",
+   "kind": "s3_prefix",
+   "setting": "incoming_prefix",
+   "status": "existing",
+   "actions": [
+    "s3:GetObject",
+    "s3:DeleteObject"
+   ],
+   "details": "watched prefix; the pipeline never writes here (no loop)"
+  },
+  {
+   "name": "processing prefix",
+   "kind": "s3_prefix",
+   "setting": "processing_prefix",
+   "status": "create",
+   "actions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject"
+   ],
+   "details": "SEP-1 writes, TRN-1 reads, DLP-2 deletes"
+  },
+  {
+   "name": "staging prefix",
+   "kind": "s3_prefix",
+   "setting": "staging_prefix",
+   "status": "create",
+   "actions": [
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject"
+   ],
+   "details": "TRN-2 writes, DLP-1 reads, DLP-2 deletes"
+  },
+  {
+   "name": "outgoing prefix",
+   "kind": "s3_prefix",
+   "setting": "outgoing_prefix",
+   "status": "create",
+   "actions": [
+    "s3:GetObject",
+    "s3:PutObject"
+   ],
+   "details": "DLP-1 writes, SEP-1 heads; never deleted or overwritten"
+  },
+  {
+   "name": "index prefix",
+   "kind": "s3_prefix",
+   "setting": "index_prefix",
+   "status": "create",
+   "actions": [
+    "s3:GetObject",
+    "s3:PutObject"
+   ],
+   "details": "DLP-1 writes, SEP-1 reads"
+  },
+  {
+   "name": "report prefix",
+   "kind": "s3_prefix",
+   "setting": "report_prefix",
+   "status": "create",
+   "actions": [
+    "s3:PutObject"
+   ],
+   "details": "the report framework task writes {run_id}.json"
+  },
+  {
+   "name": "package queue",
+   "kind": "sqs_queue",
+   "setting": "queue_url",
+   "status": "create",
+   "actions": [
+    "sqs:ReceiveMessage",
+    "sqs:DeleteMessage",
+    "sqs:ChangeMessageVisibility",
+    "sqs:GetQueueAttributes"
+   ],
+   "details": "visibility timeout 21600 s, retention 4 days, SSE-SQS, redrive to the DLQ maxReceiveCount 3. Policy allows s3.amazonaws.com sqs:SendMessage with aws:SourceArn = the bucket ARN and aws:SourceAccount = aws_account."
+  },
+  {
+   "name": "package DLQ",
+   "kind": "sqs_dlq",
+   "setting": "dlq_url",
+   "status": "create",
+   "actions": [
+    "sqs:GetQueueAttributes"
+   ],
+   "details": "retention 14 days, SSE-SQS; alarm on ApproximateNumberOfMessagesVisible > 0"
+  },
+  {
+   "name": "bucket notification",
+   "kind": "s3_notification",
+   "setting": "source_bucket",
+   "status": "create",
+   "actions": [
+    "s3:GetBucketNotification",
+    "s3:PutBucketNotification"
+   ],
+   "details": "IaC only. Read the existing configuration (1 QueueConfiguration), add s3:ObjectCreated:* with prefix {incoming_prefix} and suffix .zip → queue_url, keep every existing rule. On overlap the owner decides (Q-TRG-1)."
+  },
+  {
+   "name": "bucket KMS key",
+   "kind": "kms_key",
+   "setting": "kms_key_arn",
+   "status": "existing",
+   "actions": [
+    "kms:Decrypt",
+    "kms:GenerateDataKey"
+   ],
+   "details": "bucket default SSE-KMS key (from the probe). No sse param is passed; objects inherit the default encryption."
+  },
+  {
+   "name": "lifecycle rule",
+   "kind": "other",
+   "setting": "source_bucket",
+   "status": "create",
+   "actions": [
+    "s3:GetLifecycleConfiguration",
+    "s3:PutLifecycleConfiguration"
+   ],
+   "details": "IaC only (SUG-1). Expire noncurrent versions under incoming_prefix, processing_prefix and staging_prefix after 30 days, and remove expired delete markers; merge with existing rules."
+  }
+ ],
+ "pseudocode_dag": "DAG s3_zip_manifest: schedule '0 * * * *' UTC, catchup=False, max_active_runs=1, dagrun_timeout 5 h (below the 6 h SQS visibility timeout).\nstart → SEP-0 discover (sqs, queue_url, max_packages 100; drops TestEvents and duplicates) → per package (dynamic task mapping, max 8 parallel): SEP-1 (timeout 60 min) → SEP-2 (10 min) → [TRN-1 + TRN-2 in one Airflow task, shared_dir, timeout 120 min, worker scratch ≥ 8 GiB] → DLP-1 (60 min) → DLP-2 (10 min, on_failure skip) → outcome → DLP-Z ack (delete delivered/skipped handles, release failed) → report (write_uri s3://{target_bucket}/{report_prefix}{run_id}.json; RunFailed when any failed) → end.\nRetries: 2 per task, retry_delay 5 min, exponential backoff, only for TransientError and unexpected errors. DataError fails the package without a retry; ConfigError fails the run. E-mail on task failure and on RunFailed to alert_email.",
+ "assumptions": [
+  "Q-TRG-1 accepted: IaC adds one QueueConfiguration (ObjectCreated:*, prefix {incoming_prefix}, suffix .zip) to the new queue and keeps the existing rules; on overlap the owner decides.",
+  "Q-SEP-1-1 accepted, combined with SUG-2: dedupe uses the index object {index_prefix}{stem}/{source_sha256}_{source_key_hash}.json written by DLP-1 instead of listing outgoing/. SEP-1 also verifies that the referenced outgoing object still has a matching pkf-source-sha256 before it deletes the original.",
+  "SUG-1 accepted: lifecycle rule for noncurrent versions (30 days) under incoming, processing and staging, plus expired delete marker removal.",
+  "SUG-3 accepted: report written to s3://{target_bucket}/{report_prefix}{run_id}.json; report_prefix dev value reports/s3_zip_manifest/.",
+  "SUG-4 accepted: max_packages = 100.",
+  "index_prefix dev value 'index/s3_zip_manifest/' is derived (owner named the setting only).",
+  "Unanswered non-blocking proposals adopted: Q-SEP-2-1 (s3.delete with defaults, missing_ok), Q-TRN-1-1 (group TRN-1+TRN-2), Q-TRN-1-2 (manifest format; root manifest.csv → DataError), Q-SRC-1 (sub-folders accepted, names by stem; collisions → DataError), Q-SRC-2 (current version, WARNING on size mismatch), Q-SEP-1-2 (replay skip/resume), Q-TRG-2 (DLQ, maxReceiveCount 3, visibility 21600 s, SSE-SQS, queue policy), Q-NF-1 (≥ 8 GiB scratch, 3×size+10% check → TransientError), Q-DLP-1-1 (skip_identical; different sha → DataError).",
+  "Q-ENV-1 got no answer: the owner's staging_prefix 'staging_test/' is kept (see SUG-6).",
+  "Encryption: no sse param; objects inherit the bucket default SSE-KMS key; IAM grants kms:Decrypt/GenerateDataKey on it.",
+  "No loop: the pipeline writes only to processing, staging, outgoing, index and reports, never under incoming/.",
+  "Examples 2–4 are derived; example 1 is quoted from SEP-1/TRN-1 (zip contents derived)."
+ ]
+}

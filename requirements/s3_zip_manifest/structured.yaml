@@ -1,0 +1,186 @@
+format_version: 1
+pipeline: s3_zip_manifest
+owner: data-engineering
+environments:
+- dev
+- test
+- prod
+settings:
+- name: aws_account
+  values:
+    dev: '992382551516'
+    test: ''
+    prod: ''
+  description: ''
+  secret_ref: false
+- name: region
+  values:
+    dev: eu-north-1
+    test: eu-north-1
+    prod: eu-north-1
+  description: ''
+  secret_ref: false
+- name: source_bucket
+  values:
+    dev: dev-dpl-dstore-sas-eu-north-1-992382551516
+    test: ''
+    prod: ''
+  description: packages arrive here
+  secret_ref: false
+- name: target_bucket
+  values:
+    dev: dev-dpl-dstore-sas-eu-north-1-992382551516
+    test: ''
+    prod: ''
+  description: the same bucket as the source
+  secret_ref: false
+- name: incoming_prefix
+  values:
+    dev: incoming/
+    test: incoming/
+    prod: incoming/
+  description: ''
+  secret_ref: false
+- name: processing_prefix
+  values:
+    dev: processing/
+    test: processing/
+    prod: processing/
+  description: ''
+  secret_ref: false
+- name: staging_prefix
+  values:
+    dev: staging_test/
+    test: staging_test/
+    prod: staging_test/
+  description: ''
+  secret_ref: false
+- name: outgoing_prefix
+  values:
+    dev: outgoing/
+    test: outgoing/
+    prod: outgoing/
+  description: ''
+  secret_ref: false
+- name: queue_url
+  values:
+    dev: create
+    test: create
+    prod: create
+  description: S3 ObjectCreated on incoming/*.zip goes to this queue
+  secret_ref: false
+- name: aws_conn_id
+  values:
+    dev: aws_default
+    test: aws_default
+    prod: aws_default
+  description: Airflow connection (no secrets here)
+  secret_ref: true
+overview: "A user or a source process uploads a zip package of PDFs under incoming/. S3 sends an event notification to an SQS\nqueue; an hourly DAG reads the messages, adds a manifest.csv to every package and delivers it under outgoing/."
+source: S3 bucket {source_bucket}, prefix {incoming_prefix}. Packages are zip files of PDFs, up to 2 GB.
+destination: S3 bucket {target_bucket}, prefix {outgoing_prefix}. An existing object is never overwritten.
+nonfunctional: "Up to 50 packages an hour, largest zip 2 GB. Retries: 2. Alerts by e-mail to the data engineering team.\nData classification: internal; objects use the bucket's default encryption."
+trigger:
+  kind: sqs
+  schedule: 0 * * * *
+  queue: queue_url
+  bucket: null
+  prefix: null
+  suffix: null
+  timezone: UTC
+  text: "sqs: { queue: queue_url, poll: \"0 * * * *\" }\nS3 ObjectCreated events for incoming/*.zip go to the queue; the DAG polls it every hour (UTC), one active run."
+units:
+- id: SEP-1
+  lane: sep
+  number: 1
+  title: Copy and rename the package
+  does: "Skip a package that was already delivered (same source key and checksum).\nServer-side copy {incoming_prefix}<name>.zip to {processing_prefix}<name>_<package_ts>.zip in {source_bucket}\nand verify the copy by size and checksum."
+  level: package
+  on_failure: fail_package
+  uses: null
+  params: {}
+  example:
+    given:
+    - incoming/study_a.zip
+    then:
+    - processing/study_a_20261022T100000Z.zip
+    origin: quoted
+  line: 53
+- id: SEP-2
+  lane: sep
+  number: 2
+  title: Remove the original
+  does: Delete {incoming_prefix}<name>.zip once SEP-1's copy is verified; when it is already gone, do nothing.
+  level: package
+  on_failure: fail_package
+  uses: s3.delete
+  params:
+    bucket: '{source_bucket}'
+    key: '{incoming_prefix}{name}.zip'
+  example: null
+  line: 62
+- id: TRN-1
+  lane: trn
+  number: 1
+  title: Build the manifest
+  does: "Download {processing_prefix}<name>_<package_ts>.zip, unzip it safely and write manifest.csv with the columns\nfile_name,size_bytes (header row; path inside the zip, uncompressed size, no folder entries).\nMake a new zip with the original files plus manifest.csv."
+  level: package
+  on_failure: fail_package
+  uses: null
+  params: {}
+  example:
+    given:
+      zip:
+      - a.pdf (10 bytes)
+      - b/c.pdf (20 bytes)
+    then:
+      manifest.csv:
+      - file_name,size_bytes
+      - a.pdf,10
+      - b/c.pdf,20
+    origin: derived
+  line: 71
+- id: TRN-2
+  lane: trn
+  number: 2
+  title: Upload to staging
+  does: Upload the new zip to {staging_prefix}<name>_<package_ts>.zip and hand over its key as staging_key.
+  level: package
+  on_failure: fail_package
+  uses: null
+  params: {}
+  example: null
+  line: 82
+- id: DLP-1
+  lane: dlp
+  number: 1
+  title: Deliver to outgoing
+  does: "Copy {staging_prefix}<name>_<package_ts>.zip to {outgoing_prefix}<package_ts>_<name>.zip in {target_bucket}.\nNever overwrite an existing object."
+  level: package
+  on_failure: fail_package
+  uses: null
+  params: {}
+  example: null
+  line: 87
+- id: DLP-2
+  lane: dlp
+  number: 2
+  title: Clean up
+  does: Delete the processing and staging copies once DLP-1 is verified.
+  level: package
+  on_failure: skip
+  uses: null
+  params: {}
+  example: null
+  line: 92
+transformation_none: false
+dag:
+  order:
+  - SEP-1
+  - SEP-2
+  - TRN-1
+  - TRN-2
+  - DLP-1
+  - DLP-2
+  text: start → SEP-1 → SEP-2 → TRN-1 → TRN-2 → DLP-1 → DLP-2 → end
+  generated: false

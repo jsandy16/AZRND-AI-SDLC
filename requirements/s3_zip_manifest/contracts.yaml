@@ -1,0 +1,123 @@
+- after: SEP-0
+  fields:
+  - name: package_id
+    type: str
+    meaning: stable id (message id)
+  - name: name
+    type: str
+    meaning: base file name, e.g. study_a.zip
+  - name: source.bucket
+    type: str
+    meaning: event bucket
+  - name: source.key
+    type: str
+    meaning: exact event key under incoming/
+  - name: source.size
+    type: int
+    meaning: size from the event
+  - name: source.event_time
+    type: str
+    meaning: ISO-8601 UTC event time
+  - name: source.message_id
+    type: str
+    meaning: SQS message id
+  - name: source.receipt_handle
+    type: str
+    meaning: SQS receipt handle
+  - name: vars.package_ts
+    type: str
+    meaning: event time as YYYYMMDDTHHMMSSZ
+  - name: vars.stem
+    type: str
+    meaning: name without .zip
+  - name: vars.ext
+    type: str
+    meaning: .zip
+  s3_objects:
+  - bucket: source_bucket
+    key: '{incoming_prefix}{name}'
+    meaning: original package (absent for a replay)
+- after: SEP-1
+  fields:
+  - name: status
+    type: str
+    meaning: ok, or skipped (already delivered / replay)
+  - name: vars.source_sha256
+    type: str
+    meaning: sha256 of the original zip
+  - name: vars.source_key
+    type: str
+    meaning: original source key
+  - name: vars.source_key_hash
+    type: str
+    meaning: sha1(source_key)[:12]
+  - name: artefacts.renamed_key
+    type: str
+    meaning: '{processing_prefix}{stem}_{package_ts}.zip'
+  s3_objects:
+  - bucket: source_bucket
+    key: '{processing_prefix}{stem}_{package_ts}.zip'
+    meaning: verified copy of the original
+  - bucket: source_bucket
+    key: '{incoming_prefix}{name}'
+    meaning: original still present
+- after: SEP-2
+  fields:
+  - name: artefacts.renamed_key
+    type: str
+    meaning: processing copy key
+  - name: vars.source_sha256
+    type: str
+    meaning: source sha
+  s3_objects:
+  - bucket: source_bucket
+    key: '{processing_prefix}{stem}_{package_ts}.zip'
+    meaning: only copy of the package; incoming original deleted
+- after: TRN-1
+  fields:
+  - name: artefacts.new_zip_path
+    type: str
+    meaning: local path in rt.shared_dir() of the rebuilt zip (valid only inside the TRN group); absent when vars.staged
+  - name: vars.staged
+    type: bool
+    meaning: true when the staging zip already existed
+  - name: vars.manifest_rows
+    type: int
+    meaning: number of manifest rows (when built)
+  s3_objects:
+  - bucket: source_bucket
+    key: '{processing_prefix}{stem}_{package_ts}.zip'
+    meaning: processing copy
+- after: TRN-2
+  fields:
+  - name: artefacts.staging_key
+    type: str
+    meaning: '{staging_prefix}{stem}_{package_ts}.zip'
+  s3_objects:
+  - bucket: target_bucket
+    key: '{staging_prefix}{stem}_{package_ts}.zip'
+    meaning: rebuilt zip with manifest.csv, metadata pkf-source-key/pkf-source-sha256/pkf-sha256
+- after: DLP-1
+  fields:
+  - name: artefacts.outgoing_key
+    type: str
+    meaning: '{outgoing_prefix}{package_ts}_{stem}.zip'
+  - name: artefacts.index_key
+    type: str
+    meaning: delivery index key
+  s3_objects:
+  - bucket: target_bucket
+    key: '{outgoing_prefix}{package_ts}_{stem}.zip'
+    meaning: delivered package
+  - bucket: target_bucket
+    key: '{index_prefix}{stem}/{source_sha256}_{source_key_hash}.json'
+    meaning: delivery index
+- after: DLP-2
+  fields:
+  - name: artefacts.outgoing_key
+    type: str
+    meaning: delivered key
+  s3_objects:
+  - bucket: target_bucket
+    key: '{outgoing_prefix}{package_ts}_{stem}.zip'
+    meaning: delivered package; processing and staging copies deleted

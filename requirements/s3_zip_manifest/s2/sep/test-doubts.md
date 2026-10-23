@@ -1,0 +1,4 @@
+- Signatures of make_ctx/seeded_s3/seed_boundary/ctx_from_trace were not given, so tests build PackageContext and moto state directly with boto3.
+- SEP-2 is a kit op (no own test); the component test calls it via pkf_runtime.kit.ops.run_op('s3.delete'), assuming default bucket/key are the source's.
+- The index JSON content is assumed to hold source_key and outgoing_key (from the pseudocode).
+- The contract trace after SEP-1 shows 'source_bucket:incoming/...' still present, consistent with the tests; examples with later lanes (TRN/DLP) are out of scope for this lane.
