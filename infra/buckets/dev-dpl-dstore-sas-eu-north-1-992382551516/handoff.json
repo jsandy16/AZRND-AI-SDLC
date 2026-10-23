@@ -1,0 +1,7 @@
+{
+  "bucket": "dev-dpl-dstore-sas-eu-north-1-992382551516",
+  "foreign": [
+    "arn:aws:sqs:eu-north-1:992382551516:partner-drop-events"
+  ],
+  "reason": "the bucket has notifications this repository does not own"
+}
